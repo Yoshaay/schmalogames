@@ -1,0 +1,17 @@
+{
+  "name": "schmalogames",
+  "version": "0.1.0",
+  "description": "Minigames für die Videowall",
+  "main": "dist/main/main.js",
+  "private": true,
+  "scripts": {
+    "build": "node build.mjs",
+    "start": "npm run build && electron .",
+    "dev": "npm run build && electron . --dev"
+  },
+  "devDependencies": {
+    "electron": "^36.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.8.0"
+  }
+}
