@@ -351,6 +351,11 @@ export class Dancer {
     const toon = (color: number) => new THREE.MeshToonMaterial({ color, gradientMap: gradient, skinning: true });
 
     const skin = toon(0xf2f3f5); // fast weiß, nur ein Hauch Grau — Just-Dance-Haut
+    // Kopf unbeleuchtet & flach: ohne Shading sind Nase/Augen/Lippen unsichtbar,
+    // das modellierte Gesicht ist nicht mehr erkennbar (nur die Silhouette bleibt).
+    // Farbe = mittlerer Ton der beleuchteten Körperhaut (gemessen), damit sich
+    // das Gesicht von der weißen Outline absetzt
+    const skinFlat = new THREE.MeshBasicMaterial({ color: 0xd2d4d8, skinning: true });
     const top = toon(0xe71d73); // BR3 Pink
     const leggings = toon(0x2699d6); // BR3 Blau
     const hair = toon(0xf9b233); // BR3 Orange — Just-Dance-Haarfarbe
@@ -364,7 +369,7 @@ export class Dancer {
       switch (mesh.name) {
         case 'CC_Base_Body':
           // Material-Reihenfolge im FBX: Head, Body, Arm, Leg, Nails, Eyelash
-          mesh.material = [skin, skin, skin, skin, skin, hidden];
+          mesh.material = [skinFlat, skin, skin, skin, skin, hidden];
           break;
         case 'Tanktop':
           mesh.material = top;
