@@ -18,8 +18,9 @@ const CHEER_MAX_W = 540;
 
 /** Auszeichnungen: je ein Operator-Button, togglebar, immer mit Konfetti */
 export const CHEERS = ['TANZGOTT', 'GROOVE-LEGENDE', 'TANZMASCHINE', 'DISCO-FIEBER'];
-/** Knallfarbe pro Auszeichnung (BR3-Palette), Index parallel zu CHEERS */
-const CHEER_COLORS = ['#e71d73', '#2699d6', '#9be600', '#f9b233'];
+/** Knallfarbe pro Auszeichnung (BR3-Palette), Index parallel zu CHEERS.
+ *  Kein Hellgrün — das ginge auf dem grünen Hintergrund unter. */
+const CHEER_COLORS = ['#e71d73', '#2699d6', '#f9b233', '#e71d73'];
 
 // Ein-/Ausblend-Zeiten der Auszeichnung: Dreieck-Welle von links nach rechts
 const CHEER_IN = 0.65;
@@ -81,7 +82,17 @@ export class Schmalogroove implements Game {
 
   /* ---------- Auszeichnung (Cheer) ---------- */
   /** Gewürfeltes Dreieck-Layout des Backdrops (pro Aktivierung neu) */
-  private cheerTris: Array<{ xJit: number; y: number; rf: number; rot: number; delay: number; accent: boolean; u: number }> = [];
+  private cheerTris: Array<{
+    xJit: number;
+    y: number;
+    rf: number;
+    rot: number;
+    delay: number;
+    accent: boolean;
+    u: number;
+    /** Phase fürs Schweben/Drehen im Stand */
+    ph: number;
+  }> = [];
   private cheer: string | null = null;
   /** Restlaufzeit — die Schrift verschwindet von selbst */
   private cheerTimer = 0;
@@ -145,6 +156,7 @@ export class Schmalogroove implements Game {
         rot: (Math.random() - 0.5) * 0.22,
         delay: 0,
         accent: false,
+        ph: Math.random() * Math.PI * 2,
       });
     }
     // Akzente: kleine Dreiecke ober-/unterhalb des Bands
@@ -158,6 +170,7 @@ export class Schmalogroove implements Game {
         rot: Math.random() * Math.PI * 2,
         delay: 0,
         accent: true,
+        ph: Math.random() * Math.PI * 2,
       });
     }
     return tris;
@@ -319,7 +332,7 @@ export class Schmalogroove implements Game {
 
     g.fillStyle = color;
     g.shadowColor = color;
-    g.shadowBlur = 45;
+    g.shadowBlur = 26;
     let backbone = 0;
     for (const t of this.cheerTris) {
       let u: number;
@@ -342,19 +355,25 @@ export class Schmalogroove implements Game {
       if (outElapsed > 0) s *= Math.pow(1 - clamp01((outElapsed - u * (CHEER_OUT - shrink)) / shrink), 1.5);
       if (s <= 0.01) continue;
 
-      const x = (u - 0.5) * bandW;
+      // Schweben + langsames Durchdrehen im Stand — jedes Dreieck mit eigener
+      // Geschwindigkeit, Richtung und Phase, damit nichts synchron läuft
+      const wSpeed = 0.5 + t.rf * 0.6;
+      const spin = (t.rf < 0.5 ? -1 : 1) * (0.12 + Math.abs(t.rf - 0.5) * 0.55);
+      const wob = t.rot + this.time * spin + 0.07 * Math.sin(this.time * wSpeed + t.ph);
+      const x = (u - 0.5) * bandW + 3 * Math.sin(this.time * (wSpeed * 0.8) + t.ph * 1.7);
+      const y = t.y + 4 * Math.sin(this.time * (0.7 + t.rf * 0.4) + t.ph);
+
       const rs = r * s;
       g.beginPath();
       for (let k = 0; k < 3; k++) {
-        // gleichseitiges Dreieck, gedreht um rot, Spitze je nach dir oben/unten
-        const ang = t.rot + (dir * -Math.PI) / 2 + (k * 2 * Math.PI) / 3;
+        // gleichseitiges Dreieck, gedreht um wob, Spitze je nach dir oben/unten
+        const ang = wob + (dir * -Math.PI) / 2 + (k * 2 * Math.PI) / 3;
         const px = x + Math.cos(ang) * rs;
-        const py = t.y + Math.sin(ang) * rs;
+        const py = y + Math.sin(ang) * rs;
         k === 0 ? g.moveTo(px, py) : g.lineTo(px, py);
       }
       g.closePath();
       g.fill();
-      g.fill(); // zweiter Pass = satterer Glow
     }
     g.shadowBlur = 0;
 
