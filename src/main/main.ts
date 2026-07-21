@@ -50,6 +50,19 @@ function createWindows() {
   wall.on('leave-full-screen', sendFullscreenState);
   operator.webContents.on('did-finish-load', sendFullscreenState);
 
+  // Hotkeys 1–9 (Spiel-Aktionen) funktionieren in beiden Fenstern —
+  // egal, welches gerade den Fokus hat. Der Operator mappt sie auf Aktionen.
+  for (const win of [wall, operator]) {
+    win.webContents.on('before-input-event', (_event, input) => {
+      if (input.type !== 'keyDown' || input.isAutoRepeat) return;
+      if (input.control || input.meta || input.alt) return;
+      if (!/^[1-9]$/.test(input.key)) return;
+      if (operator && !operator.isDestroyed()) {
+        operator.webContents.send('msg', { type: 'hotkey', key: Number(input.key) });
+      }
+    });
+  }
+
   wall.on('closed', () => {
     wall = null;
   });

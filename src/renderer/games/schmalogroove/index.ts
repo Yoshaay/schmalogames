@@ -18,8 +18,12 @@ export const schmalogrooveEntry: GameEntry = {
     { key: 'sync', label: 'Sync-Offset', min: 0, max: 1000, step: 5, default: 0, unit: 'ms' },
     { key: 'cheerDur', label: 'Auszeichnungs-Dauer', min: 2, max: 15, step: 1, default: 5, unit: 's' },
   ],
-  // Auszeichnungen: Klick = an (mit Konfetti), nochmal Klick = aus
-  actions: CHEERS.map((cheer, i) => ({ id: `cheer${i}`, label: `🎉 ${cheer}` })),
+  // Auszeichnungen: Klick = an (mit Konfetti), nochmal Klick = aus.
+  // Der Burst zündet unabhängig davon über der Publikumscam-Fläche.
+  actions: [
+    ...CHEERS.map((cheer, i) => ({ id: `cheer${i}`, label: `🎉 ${cheer}` })),
+    { id: 'burst', label: '✨ Speedburst (Publikumscam)' },
+  ],
   buildOperatorPanel: buildGroovePanel,
   create: () => new Schmalogroove(),
 };

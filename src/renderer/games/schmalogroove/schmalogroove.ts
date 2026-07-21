@@ -3,6 +3,7 @@ import { Game, GameContext, SettingValues, VIEW_W, VIEW_H } from '../../core/gam
 import { Confetti } from '../../core/confetti';
 import { BeatEngine } from './beat';
 import { Dancer } from './dancer';
+import { SpeedBurst } from './burst';
 import bgUrl from './assets/Tanzspiel_Hintergrund.png';
 
 // Position der Tänzerin im Frame: auf der grünen Fläche rechts, unter dem
@@ -13,6 +14,14 @@ const STAGE_CENTER_X = 1620;
 // (CHEER_Y = vertikale MITTE des Banners)
 const CHEER_X = STAGE_CENTER_X;
 const CHEER_Y = 950;
+
+// Zentrum der freien Bühnenfläche (später Publikumscam) — dort zündet der Burst.
+// Er wird UNTER dem Hintergrund-Asset gerendert: dessen deckende Teile (Rahmen,
+// Diagonale) maskieren ihn automatisch, sichtbar bleibt er nur im transparenten
+// Fenster. Groß genug, damit die quadratische Canvas-Kante außerhalb liegt.
+const BURST_X = 610;
+const BURST_Y = 520;
+const BURST_SIZE = 1600;
 // verfügbare Breite auf der grünen Fläche
 const CHEER_MAX_W = 540;
 
@@ -94,6 +103,8 @@ export class Schmalogroove implements Game {
     ph: number;
   }> = [];
   private cheer: string | null = null;
+  /** Goldstreifen-Burst über der Publikumscam-Fläche */
+  private burst = new SpeedBurst(BURST_SIZE);
   /** Restlaufzeit — die Schrift verschwindet von selbst */
   private cheerTimer = 0;
   /** Anzeigedauer in s (Operator-Regler) */
@@ -125,6 +136,10 @@ export class Schmalogroove implements Game {
   }
 
   action(id: string) {
+    if (id === 'burst') {
+      this.burst.fire();
+      return;
+    }
     if (!id.startsWith('cheer')) return;
     const text = CHEERS[Number(id.slice(5))] ?? CHEERS[0];
     if (this.cheer === text) {
@@ -236,6 +251,8 @@ export class Schmalogroove implements Game {
 
     this.dance(dt, now / 1000);
 
+    this.burst.update(dt);
+
     // Auszeichnung aktiv: Konfetti regnet nach, bis die Zeit abläuft
     this.confetti.update(dt);
     if (this.cheer) {
@@ -265,6 +282,10 @@ export class Schmalogroove implements Game {
   }
 
   render(g: CanvasRenderingContext2D) {
+    // Ebene 0: Burst — liegt unter dem HG, dessen deckende Teile maskieren ihn
+    if (this.burst.active) {
+      g.drawImage(this.burst.canvas, BURST_X - BURST_SIZE / 2, BURST_Y - BURST_SIZE / 2);
+    }
     // Ebene 1: Hintergrund-Asset (transparente Bühnenfläche bleibt durchsichtig
     // fürs Keying im Ü-Wagen)
     if (this.bg.complete && this.bg.naturalWidth) g.drawImage(this.bg, 0, 0, VIEW_W, VIEW_H);
@@ -291,7 +312,7 @@ export class Schmalogroove implements Game {
     }
 
     g.drawImage(this.glCanvas, 0, 0, VIEW_W, VIEW_H);
-    // Ebene 3: Auszeichnung + Konfetti über allem (auch über dem Livebild)
+    // Ebene 3: Auszeichnung + Konfetti über allem
     this.confetti.render(g);
     this.renderCheer(g);
   }

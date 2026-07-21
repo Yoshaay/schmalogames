@@ -133,13 +133,21 @@ function buildPanels(entry: GameEntry | null) {
     settingsEl.innerHTML = '<div class="hint">Dieses Spiel hat keine Einstellungen.</div>';
   }
 
-  for (const action of entry.actions ?? []) {
+  (entry.actions ?? []).forEach((action, i) => {
     const btn = document.createElement('button');
     btn.className = 'btn-action';
-    btn.textContent = action.label;
+    btn.dataset.actionIndex = String(i);
+    // Hotkey-Hinweis: Tasten 1–9 feuern die Aktionen in Reihenfolge
+    if (i < 9) {
+      const key = document.createElement('span');
+      key.className = 'key';
+      key.textContent = String(i + 1);
+      btn.appendChild(key);
+    }
+    btn.appendChild(document.createTextNode(action.label));
     btn.onclick = () => window.bus.send({ type: 'action', id: action.id });
     actionsEl.appendChild(btn);
-  }
+  });
   if (!(entry.actions ?? []).length) {
     actionsEl.innerHTML = '<div class="hint">—</div>';
   }
@@ -245,6 +253,10 @@ window.bus.onMessage((raw) => {
     gamePanel?.onEvent?.((raw as { payload?: unknown }).payload);
     return;
   }
+  if (anyMsg.type === 'hotkey') {
+    fireHotkey((raw as { key: number }).key);
+    return;
+  }
   if (anyMsg.type === 'wall-fullscreen-state') {
     const btn = $('fullscreen') as HTMLButtonElement;
     btn.textContent = anyMsg.fullscreen ? 'Vollbild verlassen ⛶' : 'Wall-Vollbild ⛶';
@@ -301,6 +313,22 @@ window.bus.onMessage((raw) => {
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+
+// ---------- Hotkeys: 1–9 feuern die Aktionen des aktiven Spiels ----------
+// Die Tastendrücke fängt der Main-Prozess in BEIDEN Fenstern ab
+// (before-input-event) und schickt sie als 'hotkey'-Nachricht hierher.
+function fireHotkey(n: number) {
+  const action = entryById(activeGameId)?.actions?.[n - 1];
+  if (!action) return;
+  window.bus.send({ type: 'action', id: action.id });
+  // Button aufblitzen lassen, damit man sieht, was gefeuert hat
+  const btn = document.querySelector<HTMLButtonElement>(`.btn-action[data-action-index="${n - 1}"]`);
+  if (btn) {
+    btn.classList.remove('hit');
+    void btn.offsetWidth;
+    btn.classList.add('hit');
+  }
 }
 
 // Falls das Wall-Fenster schon läuft: Vorschau-Verbindung anfordern

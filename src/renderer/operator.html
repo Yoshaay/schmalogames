@@ -143,6 +143,24 @@
         gap: 16px;
         min-height: 0;
       }
+      /* Rechte Spalte: scrollt bei kleinen Fenstern, statt abgeschnitten zu werden */
+      .col-side {
+        overflow-y: auto;
+        padding-right: 4px;
+      }
+      .col-side > .panel {
+        flex-shrink: 0;
+      }
+      .col-side::-webkit-scrollbar {
+        width: 8px;
+      }
+      .col-side::-webkit-scrollbar-thumb {
+        background: #2a2e37;
+        border-radius: 4px;
+      }
+      .col-side::-webkit-scrollbar-track {
+        background: transparent;
+      }
 
       .panel {
         background: var(--panel);
@@ -302,6 +320,28 @@
       .btn-action:hover {
         background: rgba(148, 192, 28, 0.14);
         border-color: var(--primary-deep);
+      }
+      @keyframes action-hit {
+        0% {
+          background: rgba(148, 192, 28, 0.45);
+        }
+        100% {
+          background: transparent;
+        }
+      }
+      .btn-action.hit {
+        animation: action-hit 0.2s ease;
+      }
+      .btn-action .key {
+        display: inline-block;
+        min-width: 18px;
+        margin-right: 8px;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--ink-dim);
+        border: 1px solid var(--panel-edge);
+        border-radius: 3px;
+        padding: 1px 4px;
       }
 
       /* ---------- Regler ---------- */
@@ -495,7 +535,7 @@
         </div>
       </div>
 
-      <div class="col">
+      <div class="col col-side">
         <div class="panel">
           <h2>Spiele</h2>
           <div id="games"></div>
