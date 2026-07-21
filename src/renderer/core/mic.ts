@@ -7,6 +7,12 @@ export class Mic {
   private stream: MediaStream | null = null;
   private analyser: AnalyserNode | null = null;
   private buffer: Float32Array<ArrayBuffer> = new Float32Array(0);
+  private label = '';
+
+  /** Name des tatsächlich geöffneten Eingabegeräts (nach start()) */
+  get deviceLabel(): string {
+    return this.label;
+  }
 
   async start(): Promise<void> {
     this.stream = await navigator.mediaDevices.getUserMedia({
@@ -17,7 +23,11 @@ export class Mic {
         autoGainControl: false,
       },
     });
+    this.label = this.stream.getAudioTracks()[0]?.label ?? 'unbekannt';
     this.audioCtx = new AudioContext();
+    // Ohne User-Geste kann der Kontext suspendiert starten — dann misst der
+    // Analyser nur Stille
+    if (this.audioCtx.state === 'suspended') await this.audioCtx.resume();
     const source = this.audioCtx.createMediaStreamSource(this.stream);
     this.analyser = this.audioCtx.createAnalyser();
     this.analyser.fftSize = 2048;

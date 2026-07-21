@@ -1,9 +1,11 @@
-import { GameEntry } from './core/game';
+import { GameEntry, OperatorPanel, SettingDef } from './core/game';
 import { games } from './games/registry';
 
 const $ = (id: string) => document.getElementById(id)!;
 
 let activeGameId: string | null = null;
+// Spielspezifisches Operator-UI (GameEntry.buildOperatorPanel)
+let gamePanel: OperatorPanel | null = null;
 
 // ---------- Spiele-Liste ----------
 const gamesEl = $('games');
@@ -62,8 +64,26 @@ function entryById(id: string | null): GameEntry | null {
 function buildPanels(entry: GameEntry | null) {
   const settingsEl = $('settings');
   const actionsEl = $('actions');
+  const liveEl = $('live');
+  const livePanel = $('live-panel') as HTMLElement;
+  const gameUiEl = $('game-ui');
+  const gamePanelEl = $('game-panel') as HTMLElement;
   settingsEl.innerHTML = '';
   actionsEl.innerHTML = '';
+  liveEl.innerHTML = '';
+  livePanel.hidden = true;
+  gamePanel?.dispose?.();
+  gamePanel = null;
+  gameUiEl.innerHTML = '';
+  gamePanelEl.hidden = true;
+
+  if (entry?.buildOperatorPanel) {
+    gamePanelEl.hidden = false;
+    $('game-panel-title').textContent = entry.title;
+    gamePanel = entry.buildOperatorPanel(gameUiEl, {
+      send: (payload) => window.bus.send({ type: 'game', payload }),
+    });
+  }
 
   if (!entry) {
     settingsEl.innerHTML = '<div class="hint">Spiel starten, um Einstellungen zu sehen.</div>';
@@ -71,7 +91,13 @@ function buildPanels(entry: GameEntry | null) {
     return;
   }
 
-  for (const def of entry.settings ?? []) {
+  // Live-Fader bekommen ein eigenes Panel, der Rest wird zum normalen Slider
+  const faderDefs = (entry.settings ?? []).filter((d) => d.variant === 'fader');
+  const sliderDefs = (entry.settings ?? []).filter((d) => d.variant !== 'fader');
+  livePanel.hidden = !faderDefs.length;
+  for (const def of faderDefs) liveEl.appendChild(buildFader(def));
+
+  for (const def of sliderDefs) {
     const wrap = document.createElement('div');
     wrap.className = 'setting';
 
@@ -103,7 +129,7 @@ function buildPanels(entry: GameEntry | null) {
     wrap.append(row, slider);
     settingsEl.appendChild(wrap);
   }
-  if (!(entry.settings ?? []).length) {
+  if (!sliderDefs.length) {
     settingsEl.innerHTML = '<div class="hint">Dieses Spiel hat keine Einstellungen.</div>';
   }
 
@@ -117,6 +143,73 @@ function buildPanels(entry: GameEntry | null) {
   if (!(entry.actions ?? []).length) {
     actionsEl.innerHTML = '<div class="hint">—</div>';
   }
+}
+
+/** Großer vertikaler Live-Fader (Pult-Optik) für Settings mit variant 'fader' */
+function buildFader(def: SettingDef): HTMLElement {
+  const root = document.createElement('div');
+  root.className = 'fader';
+  root.dataset.key = def.key;
+
+  const val = document.createElement('div');
+  val.className = 'fader-val';
+
+  const scale = document.createElement('div');
+  scale.className = 'fader-scale';
+  for (let i = 4; i >= 0; i--) {
+    const mark = document.createElement('span');
+    mark.textContent = String(Math.round(def.min + ((def.max - def.min) / 4) * i));
+    scale.appendChild(mark);
+  }
+
+  const track = document.createElement('div');
+  track.className = 'fader-track';
+  track.innerHTML =
+    '<div class="fader-zones zones-hint"></div>' +
+    '<div class="fader-zones zones-fill"></div>' +
+    '<div class="fader-ticks"></div>' +
+    '<div class="fader-grip"></div>';
+
+  const body = document.createElement('div');
+  body.className = 'fader-body';
+  body.append(scale, track);
+
+  const label = document.createElement('div');
+  label.className = 'fader-label';
+  label.textContent = def.label;
+
+  root.append(val, body, label);
+  setFaderView(root, def, def.default);
+
+  const apply = (e: PointerEvent) => {
+    const r = track.getBoundingClientRect();
+    const frac = Math.min(1, Math.max(0, (r.bottom - e.clientY) / r.height));
+    const value = Math.round((def.min + frac * (def.max - def.min)) / def.step) * def.step;
+    setFaderView(root, def, value);
+    window.bus.send({ type: 'set', key: def.key, value });
+  };
+  track.addEventListener('pointerdown', (e) => {
+    root.dataset.dragging = '1';
+    track.setPointerCapture(e.pointerId);
+    apply(e);
+  });
+  track.addEventListener('pointermove', (e) => {
+    if (root.dataset.dragging) apply(e);
+  });
+  const endDrag = () => {
+    delete root.dataset.dragging;
+  };
+  track.addEventListener('pointerup', endDrag);
+  track.addEventListener('pointercancel', endDrag);
+
+  return root;
+}
+
+function setFaderView(root: HTMLElement, def: SettingDef, value: number) {
+  const pct = ((value - def.min) / (def.max - def.min)) * 100;
+  root.querySelector<HTMLElement>('.fader-val')!.textContent = formatValue(value, def.unit);
+  root.querySelector<HTMLElement>('.zones-fill')!.style.clipPath = `inset(${100 - pct}% 0 0 0)`;
+  root.querySelector<HTMLElement>('.fader-grip')!.style.bottom = `${pct}%`;
 }
 
 function formatValue(value: number, unit?: string): string {
@@ -148,6 +241,10 @@ window.bus.onMessage((raw) => {
     else previewPendingIce.push(anyMsg.candidate);
     return;
   }
+  if (anyMsg.type === 'game-event') {
+    gamePanel?.onEvent?.((raw as { payload?: unknown }).payload);
+    return;
+  }
   if (anyMsg.type === 'wall-fullscreen-state') {
     const btn = $('fullscreen') as HTMLButtonElement;
     btn.textContent = anyMsg.fullscreen ? 'Vollbild verlassen ⛶' : 'Wall-Vollbild ⛶';
@@ -176,6 +273,11 @@ window.bus.onMessage((raw) => {
   for (const def of entry?.settings ?? []) {
     const value = msg.settings[def.key];
     if (value === undefined) continue;
+    if (def.variant === 'fader') {
+      const fader = document.querySelector<HTMLElement>(`.fader[data-key="${def.key}"]`);
+      if (fader && !fader.dataset.dragging) setFaderView(fader, def, value);
+      continue;
+    }
     const slider = document.querySelector<HTMLInputElement>(`input[data-key="${def.key}"]`);
     const val = document.querySelector<HTMLElement>(`.val[data-key="${def.key}"]`);
     if (slider && document.activeElement !== slider) slider.value = String(value);

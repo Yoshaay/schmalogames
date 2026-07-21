@@ -1,3 +1,6 @@
 node_modules/
 dist/
 .DS_Store
+
+# TheSans ist lizenziert (LucasFonts/BR) — nicht ins öffentliche Repo
+fonts/

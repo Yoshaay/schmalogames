@@ -1,0 +1,1074 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SCHMALGROOVE — Beat-Dancer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+  :root{
+    --bg:#16181d;
+    --panel:#1e2128;
+    --panel-edge:#2a2e37;
+    --ink:#e8e4d8;
+    --dim:#7a8090;
+    --amber:#ff2d95;
+    --beat:#26e6ff;
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--ink);font-family:var(--sans)}
+  #stage{position:fixed;inset:0;width:100%;height:100%;display:block}
+
+  /* ---------- Kopfzeile ---------- */
+  .top{
+    position:fixed;top:0;left:0;right:0;
+    display:flex;align-items:baseline;justify-content:space-between;
+    padding:14px 18px;pointer-events:none;
+  }
+  .brand{font-family:var(--mono);font-size:13px;letter-spacing:.28em;color:var(--ink)}
+  .brand b{color:var(--amber);font-weight:700}
+  .status{font-family:var(--mono);font-size:11px;letter-spacing:.12em;color:var(--dim);text-transform:uppercase}
+  .status.live{color:var(--beat)}
+
+  /* Move-Anzeige */
+  .movetag{
+    position:fixed;top:54px;left:50%;transform:translateX(-50%);
+    font-family:var(--mono);font-size:12px;letter-spacing:.35em;
+    color:var(--beat);text-transform:uppercase;pointer-events:none;opacity:0;
+  }
+  .movetag.pop{animation:tagpop .45s ease forwards}
+  @keyframes tagpop{
+    0%{opacity:0;transform:translateX(-50%) translateY(10px) scale(.92)}
+    100%{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}
+  }
+
+  /* ---------- Bottom-Container: Wellenform + HUD ---------- */
+  .bottom{position:fixed;left:0;right:0;bottom:0}
+
+  .wave{
+    position:relative;height:54px;
+    background:rgba(30,33,40,.92);
+    border-top:1px solid var(--panel-edge);
+    cursor:pointer;touch-action:none;
+  }
+  .wave canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+  .wtime{
+    position:absolute;top:5px;right:10px;
+    font-family:var(--mono);font-size:10px;letter-spacing:.1em;
+    color:var(--dim);pointer-events:none;
+  }
+
+  .hud{
+    display:flex;align-items:stretch;gap:1px;
+    background:var(--panel-edge);
+    border-top:1px solid var(--panel-edge);
+    font-family:var(--mono);
+    user-select:none;
+  }
+  .cell{background:var(--panel);padding:12px 16px;display:flex;flex-direction:column;justify-content:center;gap:6px}
+  .cell .label{font-size:9px;letter-spacing:.22em;color:var(--dim);text-transform:uppercase}
+
+  /* Transport */
+  .transport{flex:0 0 auto;flex-direction:row;align-items:center;gap:10px}
+  button{
+    font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+    background:none;border:1px solid var(--panel-edge);color:var(--ink);
+    padding:10px 14px;cursor:pointer;transition:border-color .15s,color .15s;
+  }
+  button:hover{border-color:var(--amber);color:var(--amber)}
+  button:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+  button:disabled{opacity:.35;cursor:default}
+  button:disabled:hover{border-color:var(--panel-edge);color:var(--ink)}
+  button.armed{border-color:var(--beat);color:var(--beat)}
+  @keyframes taphit{0%{background:var(--amber);color:#111}100%{background:transparent}}
+  button.hit{animation:taphit .15s ease}
+  input[type=file]{display:none}
+
+  /* BPM — das Herzstück */
+  .bpm{flex:0 0 auto;min-width:150px;align-items:flex-start}
+  .bpm-row{display:flex;align-items:baseline;gap:8px}
+  .bpm-num{font-size:42px;font-weight:700;line-height:1;color:var(--amber);font-variant-numeric:tabular-nums;min-width:96px}
+  .bpm-num.searching{color:var(--dim)}
+  .tick{width:10px;height:10px;background:var(--panel-edge);transform:rotate(45deg);transition:background .05s}
+  .tick.on{background:var(--beat)}
+  .bpm-sub{font-size:9px;letter-spacing:.18em;color:var(--dim)}
+
+  /* Spektrum */
+  .vu{flex:1 1 auto;min-width:120px}
+  .vu canvas{width:100%;height:36px;display:block}
+
+  /* Regler */
+  .knob{flex:0 0 auto;min-width:150px}
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;width:100%;height:2px;
+    background:var(--panel-edge);outline:none;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;appearance:none;width:12px;height:12px;
+    background:var(--amber);cursor:pointer;border-radius:0;
+  }
+  input[type=range]::-moz-range-thumb{width:12px;height:12px;background:var(--amber);cursor:pointer;border:0;border-radius:0}
+  input[type=range]:focus-visible{outline:2px solid var(--amber);outline-offset:4px}
+
+  /* Drop-Hinweis */
+  .empty{
+    position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    pointer-events:none;
+  }
+  .empty .card{
+    font-family:var(--mono);font-size:12px;letter-spacing:.14em;color:var(--dim);
+    text-transform:uppercase;text-align:center;line-height:2;
+    border:1px dashed var(--panel-edge);padding:22px 30px;background:rgba(22,24,29,.55);
+  }
+  .empty .card em{color:var(--amber);font-style:normal}
+  body.dragging .empty .card{border-color:var(--amber);color:var(--ink)}
+  .hidden{display:none !important}
+
+  @media (max-width:640px){
+    .vu{display:none}
+    .transport{flex-wrap:wrap}
+    .knob{min-width:110px}
+    .bpm-num{font-size:32px;min-width:72px}
+  }
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+
+<header class="top">
+  <div class="brand">SCHMAL<b>GROOVE</b></div>
+  <div class="status" id="status">Bereit</div>
+</header>
+
+<div class="movetag" id="moveTag"></div>
+
+<div class="empty" id="empty">
+  <div class="card">
+    Audiodatei hierher ziehen<br>
+    oder <em>unten laden</em> · Mikrofon geht auch
+  </div>
+</div>
+
+<div class="bottom">
+  <div class="wave hidden" id="waveWrap">
+    <canvas id="wave"></canvas>
+    <span class="wtime" id="wtime">0:00 / 0:00</span>
+  </div>
+  <div class="hud">
+    <div class="cell transport">
+      <button id="btnLoad">Track laden</button>
+      <button id="btnPlay" disabled>Play</button>
+      <button id="btnMic">Mikro</button>
+      <button id="btnTap" title="Tap-Tempo — Taste T">Tap</button>
+      <button id="btnAuto" disabled title="Zurück zur automatischen Erkennung">Auto</button>
+      <input type="file" id="file" accept="audio/*">
+    </div>
+    <div class="cell bpm">
+      <span class="label">Tempo</span>
+      <div class="bpm-row">
+        <span class="bpm-num searching" id="bpmNum">—</span>
+        <span class="tick" id="tick"></span>
+      </div>
+      <span class="bpm-sub" id="bpmSub">warte auf Beat</span>
+    </div>
+    <div class="cell vu">
+      <span class="label">Spektrum</span>
+      <canvas id="vu"></canvas>
+    </div>
+    <div class="cell knob">
+      <span class="label">Beat-Empfindlichkeit</span>
+      <input type="range" id="sens" min="110" max="180" value="135">
+    </div>
+    <div class="cell knob">
+      <span class="label">Move-Intensität</span>
+      <input type="range" id="moves" min="20" max="150" value="100">
+    </div>
+    <div class="cell knob">
+      <span class="label" id="syncLabel">Sync-Offset · 0 ms</span>
+      <input type="range" id="sync" min="0" max="1000" step="5" value="0">
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   SCHMALGROOVE
+   1) Three.js: Low-Poly-Mensch mit derselben Bone-Hierarchie wie das
+      Blender-Rig (hips → spine → chest → neck → head, Arme, Beine).
+   2) Web Audio: Bass-Energie-Onset-Detection → BPM aus Median der
+      Inter-Beat-Intervalle → Beat-Phase treibt die Pose in Echtzeit.
+   ===================================================================== */
+
+/* ---------------- Szene ---------------- */
+const canvas = document.getElementById('stage');
+const renderer = new THREE.WebGLRenderer({canvas, antialias:true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x16181d);
+scene.fog = new THREE.Fog(0x16181d, 6, 14);
+
+const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 50);
+camera.position.set(0, 1.5, 4.2);
+camera.lookAt(0, 0.85, 0);
+
+scene.add(new THREE.HemisphereLight(0xe8e4d8, 0x16181d, 0.55));
+const key = new THREE.SpotLight(0xfff2dc, 1.1, 20, Math.PI/5, 0.5, 1.2);
+key.position.set(2.5, 5, 3);
+key.castShadow = true;
+key.shadow.mapSize.set(1024, 1024);
+scene.add(key);
+const beatLight = new THREE.PointLight(0xff2d95, 0, 8);
+beatLight.position.set(0, 2.2, 1.5);
+scene.add(beatLight);
+
+/* Boden + pulsierende Ringe */
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(30, 30),
+  new THREE.MeshStandardMaterial({color:0x1a1d23, roughness:0.95})
+);
+floor.rotation.x = -Math.PI/2;
+floor.receiveShadow = true;
+scene.add(floor);
+scene.add(new THREE.GridHelper(30, 60, 0x2a2e37, 0x22252c));
+
+const rings = [];
+for (let i = 0; i < 3; i++){
+  const r = new THREE.Mesh(
+    new THREE.RingGeometry(0.96, 1.0, 64),
+    new THREE.MeshBasicMaterial({color: i % 2 ? 0x26e6ff : 0xff2d95, transparent:true, opacity:0, side:THREE.DoubleSide})
+  );
+  r.rotation.x = -Math.PI/2;
+  r.position.y = 0.005 + i*0.001;
+  scene.add(r);
+  rings.push(r);
+}
+
+/* ---------------- Figur (gleiche Hierarchie wie das Blender-Rig) ------ */
+/* Just-Dance-Palette: weiße "Haut", knallige Flächenfarben, kein Gesicht */
+const matSkin  = new THREE.MeshStandardMaterial({color:0xffffff, roughness:0.35, metalness:0.02});
+const matShirt = new THREE.MeshStandardMaterial({color:0xff2d95, roughness:0.5});   // Magenta
+const matPants = new THREE.MeshStandardMaterial({color:0x6c2bd9, roughness:0.55});  // Violett
+const matShoe  = new THREE.MeshStandardMaterial({color:0x26e6ff, roughness:0.4});   // Cyan
+const matGlove = new THREE.MeshStandardMaterial({color:0xffd60a, roughness:0.4});   // Gelb
+const matShade = new THREE.MeshStandardMaterial({color:0x1a1a22, roughness:0.15, metalness:0.4});
+
+const bones = {};
+
+function bone(parent, name, x, y, z){
+  const g = new THREE.Group();
+  g.position.set(x, y, z);
+  parent.add(g);
+  bones[name] = g;
+  return g;
+}
+function box(parent, w, h, d, x, y, z, mat){
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat || matSkin);
+  m.position.set(x, y, z);
+  m.castShadow = true;
+  parent.add(m);
+  return m;
+}
+/* Gliedmaße: Zylinder, hängt von der Bone-Wurzel nach unten */
+function limb(parent, rTop, rBot, len, mat){
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBot, len, 18), mat);
+  m.position.y = -len / 2;
+  m.castShadow = true;
+  parent.add(m);
+  return m;
+}
+/* Gelenk-/Körperkugel */
+function ball(parent, r, x, y, z, mat){
+  const m = new THREE.Mesh(new THREE.SphereGeometry(r, 20, 14), mat);
+  m.position.set(x, y, z);
+  m.castShadow = true;
+  parent.add(m);
+  return m;
+}
+
+const root = new THREE.Group();
+scene.add(root);
+
+/* Wirbelsäule — Offsets entsprechen den Bone-Heads aus dem Blender-Skript */
+const hips  = bone(root,  'hips',  0, 0.90, 0);
+limb(hips, 0.155, 0.165, 0.16, matPants).position.y = 0.02;   // Shorts/Hüfte
+ball(hips, 0.15, 0, -0.05, 0, matPants);                       // runder Po-Abschluss
+const spine = bone(hips,  'spine', 0, 0.10, 0);
+limb(spine, 0.145, 0.15, 0.14, matShirt).position.y = 0.06;    // Taille
+const chest = bone(spine, 'chest', 0, 0.25, 0);
+limb(chest, 0.165, 0.135, 0.34, matShirt).position.y = 0.06;   // Brustkorb (Shirt)
+ball(chest, 0.163, 0, 0.22, 0, matShirt);                      // runde Schultern
+const neck  = bone(chest, 'neck',  0, 0.25, 0);
+limb(neck, 0.045, 0.05, 0.10, matSkin).position.y = 0.05;
+const head  = bone(neck,  'head',  0, 0.08, 0);
+ball(head, 0.13, 0, 0.12, 0, matSkin);                         // Kopf: weiße Kugel, kein Gesicht
+box(head, 0.19, 0.05, 0.05, 0, 0.135, 0.10, matShade);         // Sonnenbrille
+const cap = new THREE.Mesh(                                     // Beanie in Akzentfarbe
+  new THREE.SphereGeometry(0.135, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2.1),
+  matGlove
+);
+cap.position.y = 0.14; cap.castShadow = true;
+head.add(cap);
+
+/* Arme + Beine */
+for (const [side, sx] of [['L', 1], ['R', -1]]){
+  const ua = bone(chest, 'upper_arm.'+side, sx*0.24, 0.20, 0);
+  ball(ua, 0.068, 0, 0, 0, matShirt);                          // Schulterkugel (Ärmel)
+  limb(ua, 0.052, 0.046, 0.28, matSkin);                       // Oberarm: nackte weiße Haut
+  const fa = bone(ua, 'forearm.'+side, 0, -0.28, 0);
+  ball(fa, 0.05, 0, 0, 0, matSkin);                            // Ellbogen
+  limb(fa, 0.046, 0.04, 0.25, matSkin);
+  const ha = bone(fa, 'hand.'+side, 0, -0.25, 0);
+  // Signatur: rechte Hand trägt den Just-Dance-Handschuh
+  ball(ha, side === 'R' ? 0.075 : 0.058, 0, -0.03, 0, side === 'R' ? matGlove : matSkin);
+
+  const th = bone(hips, 'thigh.'+side, sx*0.09, 0, 0);
+  ball(th, 0.085, 0, 0, 0, matPants);
+  limb(th, 0.078, 0.062, 0.40, matPants);                      // Hose
+  const sh = bone(th, 'shin.'+side, 0, -0.40, 0);
+  ball(sh, 0.062, 0, 0, 0, matPants);                          // Knie
+  limb(sh, 0.058, 0.048, 0.42, matPants);
+  const ft = bone(sh, 'foot.'+side, 0, -0.42, 0);
+  box(ft, 0.12, 0.085, 0.26, 0, -0.042, 0.055, matShoe);       // Sneaker
+  box(ft, 0.125, 0.03, 0.27, 0, -0.075, 0.055, matSkin);       // weiße Sohle
+}
+
+/* ---------------- Audio + Beat-Tracking ---------------- */
+let actx = null, analyser = null, freq = null, prevFreq = null;
+let sourceNode = null, micStream = null, audioBuffer = null;
+let playing = false, usingMic = false;
+let pauseOffset = 0, startedAt = 0;
+
+/* Beat-Engine-Zustand:
+   Spectral-Flux-Onset-Kurve → Autokorrelation (Tempo) → Beat-Grid (Phase) */
+const FS = 100;                 // Abtastrate der Onset-Kurve für die Analyse (Hz)
+const WIN_MS = 6000;            // Analysefenster
+const fluxT = [], fluxV = [];   // Onset-Kurve: Zeitstempel + Flux-Wert
+let bpm = 0, periodMs = 0, conf = 0;
+let nextBeatAt = 0;             // nächster Beat laut Grid (performance.now-Basis)
+let beatPhase = 0;              // 0..1 innerhalb eines Beats
+let beatCount = 0;
+let beatFlash = 0;              // 1 direkt nach Beat, klingt ab
+let energySm = 0;               // geglättete Gesamtenergie 0..1
+let accent = 0;                 // aktueller Flux in Sigma-Einheiten (für Akzente)
+let fluxMean = 0, fluxVar = 1;  // laufende Flux-Statistik
+let lastAnalysisAt = 0, lastOnsetAt = 0;
+let offsetMs = 0;               // Sync-Offset: verzögert die VISUALS gegen die Analyse
+const pendingOnsets = [];       // Fallback-Onsets, die auf ihren Offset warten
+let manualBpm = false;          // Tap-Override: Auto-Erkennung pausiert
+const taps = [];                // Tap-Zeitstempel
+
+const el = id => document.getElementById(id);
+const statusEl = el('status'), bpmNum = el('bpmNum'), bpmSub = el('bpmSub'), tick = el('tick');
+
+function ensureCtx(){
+  if (!actx){
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = actx.createAnalyser();
+    analyser.fftSize = 2048;
+    analyser.smoothingTimeConstant = 0.3;   // wenig Smoothing → schärfere Onsets
+    freq = new Uint8Array(analyser.frequencyBinCount);
+    prevFreq = new Uint8Array(analyser.frequencyBinCount);
+  }
+  if (actx.state === 'suspended') actx.resume();
+}
+
+function stopSource(){
+  if (sourceNode){ try{ sourceNode.stop(); }catch(e){} sourceNode.disconnect(); sourceNode = null; }
+  if (micStream){ micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+  playing = false; usingMic = false;
+}
+
+function resetTracking(){
+  fluxT.length = 0; fluxV.length = 0;
+  bpm = 0; periodMs = 0; conf = 0; nextBeatAt = 0;
+  beatPhase = 0; beatCount = 0;
+  fluxMean = 0; fluxVar = 1; accent = 0;
+  lastAnalysisAt = 0; lastOnsetAt = 0;
+  pendingOnsets.length = 0;
+  manualBpm = false; taps.length = 0;
+  el('btnTap').classList.remove('armed');
+  el('btnAuto').disabled = true;
+  if (prevFreq) prevFreq.fill(0);
+  bpmNum.textContent = '—'; bpmNum.classList.add('searching');
+  bpmSub.textContent = 'warte auf Beat';
+}
+
+async function loadFile(file){
+  ensureCtx();
+  statusEl.textContent = 'Dekodiere…';
+  const buf = await file.arrayBuffer();
+  audioBuffer = await actx.decodeAudioData(buf);
+  pauseOffset = 0;
+  computePeaks(audioBuffer);
+  waveWrap.classList.remove('hidden');
+  el('btnPlay').disabled = false;
+  el('empty').classList.add('hidden');
+  statusEl.textContent = file.name.length > 34 ? file.name.slice(0, 32) + '…' : file.name;
+  startPlayback();
+}
+
+function startPlayback(keepTracking){
+  ensureCtx(); stopSource();
+  if (keepTracking) nextBeatAt = 0;   // Seek: Tempo behalten, Beat-Grid neu ausrichten
+  else resetTracking();
+  sourceNode = actx.createBufferSource();
+  sourceNode.buffer = audioBuffer;
+  sourceNode.loop = true;
+  sourceNode.connect(analyser);
+  analyser.connect(actx.destination);
+  startedAt = actx.currentTime - pauseOffset;
+  sourceNode.start(0, pauseOffset % audioBuffer.duration);
+  playing = true;
+  el('btnPlay').textContent = 'Pause';
+  statusEl.classList.add('live');
+  moveTag.textContent = MOVES[currentMove].name;
+  moveTag.classList.add('pop');
+}
+
+function pausePlayback(){
+  pauseOffset = actx.currentTime - startedAt;
+  stopSource();
+  try{ analyser.disconnect(); }catch(e){}
+  el('btnPlay').textContent = 'Play';
+  statusEl.classList.remove('live');
+}
+
+async function startMic(){
+  ensureCtx(); stopSource(); resetTracking();
+  try{ analyser.disconnect(); }catch(e){}   // Mikro nicht auf die Boxen legen
+  try{
+    micStream = await navigator.mediaDevices.getUserMedia({audio:{
+      echoCancellation:false, noiseSuppression:false, autoGainControl:false
+    }});
+    const src = actx.createMediaStreamSource(micStream);
+    src.connect(analyser);
+    playing = true; usingMic = true;
+    el('empty').classList.add('hidden');
+    waveWrap.classList.add('hidden');
+    el('btnMic').classList.add('armed');
+    el('btnMic').textContent = 'Mikro aus';
+    statusEl.textContent = 'Mikrofon live';
+    statusEl.classList.add('live');
+    moveTag.textContent = MOVES[currentMove].name;
+    moveTag.classList.add('pop');
+  }catch(err){
+    statusEl.textContent = 'Mikrofon-Zugriff verweigert';
+  }
+}
+
+function stopMic(){
+  stopSource();
+  if (audioBuffer) waveWrap.classList.remove('hidden');
+  el('btnMic').classList.remove('armed');
+  el('btnMic').textContent = 'Mikro';
+  statusEl.textContent = 'Bereit';
+  statusEl.classList.remove('live');
+}
+
+/* =====================================================================
+   Beat-Engine v2
+   1) sampleAudio: Spectral Flux pro Frame (positive Magnituden-Änderung,
+      Bässe stärker gewichtet) → Onset-Kurve mit Zeitstempeln.
+   2) analyzeTempo (alle 400 ms): Kurve auf 100 Hz resampeln, detrendet,
+      Autokorrelation über 70–180 BPM mit Harmonischen-Support,
+      log-Gauss-Tempo-Prior um 120 BPM, Hysterese aufs aktuelle Tempo,
+      parabolische Peak-Verfeinerung. Update nur bei klarem Peak.
+   3) alignPhase: Comb-Suche nach dem Phasen-Offset, bei dem das Beat-
+      Raster die Onset-Kurve am besten trifft → sanfter PLL-Nudge statt
+      hartem Resync. Beats feuern dann vom Grid, nicht von einzelnen
+      (verrauschten) Onsets.
+   ===================================================================== */
+
+function sampleAudio(nowMs){
+  analyser.getByteFrequencyData(freq);
+
+  // Spectral Flux bis ~4 kHz, Bass-Bins (<~200 Hz) doppelt gewichtet
+  let f = 0, tot = 0;
+  for (let i = 1; i < 186; i++){
+    const d = freq[i] - prevFreq[i];
+    if (d > 0) f += (i < 10 ? 2 : 1) * d;
+    prevFreq[i] = freq[i];
+    if (i < 120) tot += freq[i];
+  }
+  energySm += (tot / 119 / 255 - energySm) * 0.08;
+
+  fluxT.push(nowMs); fluxV.push(f);
+  while (fluxT.length && nowMs - fluxT[0] > WIN_MS + 1000){ fluxT.shift(); fluxV.shift(); }
+
+  // Laufende Statistik → Akzentstärke in Sigma-Einheiten
+  fluxMean += (f - fluxMean) * 0.05;
+  fluxVar  += ((f - fluxMean) * (f - fluxMean) - fluxVar) * 0.05;
+  accent = Math.max(0, (f - fluxMean) / (Math.sqrt(fluxVar) + 1e-6));
+}
+
+function analyzeTempo(nowMs){
+  if (fluxT.length < 120 || nowMs - fluxT[0] < 3500) return;
+
+  // --- 1) Onset-Kurve auf festes 100-Hz-Raster resampeln ---
+  const span = Math.min(WIN_MS, nowMs - fluxT[0]);
+  const t0 = nowMs - span;
+  const N = Math.floor(span * FS / 1000);
+  const env = new Float32Array(N);
+  let j = 0;
+  for (let n = 0; n < N; n++){
+    const t = t0 + n * 1000 / FS;
+    while (j < fluxT.length - 2 && fluxT[j + 1] < t) j++;
+    const t1 = fluxT[j], t2 = fluxT[j + 1] ?? t1;
+    const v1 = fluxV[j], v2 = fluxV[j + 1] ?? v1;
+    env[n] = t2 > t1 ? v1 + (v2 - v1) * (t - t1) / (t2 - t1) : v1;
+  }
+
+  // --- 2) Detrend (lokalen Mittelwert abziehen) + Halbwellen-Gleichrichtung ---
+  const W = FS >> 1;                       // 0,5-s-Fenster
+  const det = new Float32Array(N);
+  let acc = 0;
+  for (let n = 0; n < N; n++){
+    acc += env[n];
+    if (n >= W) acc -= env[n - W];
+    det[n] = Math.max(0, env[n] - acc / Math.min(n + 1, W));
+  }
+
+  // --- 3) Autokorrelation über Beat-Perioden (70–180 BPM) ---
+  const Lmin = Math.round(60 * FS / 185);  // ≈ 32 Samples
+  const Lmax = Math.round(60 * FS / 68);   // ≈ 88 Samples
+  const curL = bpm > 0 ? 60 * FS / bpm : 0;
+  const score = new Float32Array(Lmax + 2);
+  let best = -1, bestL = 0, sum = 0, cnt = 0;
+
+  for (let L = Lmin; L <= Lmax; L++){
+    let r = 0;
+    for (let n = L; n < N; n++) r += det[n] * det[n - L];
+    r /= (N - L);
+
+    // Harmonischen-Support: die doppelte Periode (der Takt) stützt den Beat
+    // und unterscheidet ihn vom Off-Beat
+    let h = r;
+    if (2 * L < N){
+      let r2 = 0;
+      for (let n = 2 * L; n < N; n++) r2 += det[n] * det[n - 2 * L];
+      h += 0.5 * r2 / (N - 2 * L);
+    }
+
+    // Tempo-Prior: log-Gauss um 120 BPM gegen Oktav-Ambiguität
+    h *= Math.exp(-0.5 * Math.pow(Math.log2((60 * FS / L) / 120) / 0.85, 2));
+
+    // Hysterese: aktuelles Tempo leicht bevorzugen (kein Flackern)
+    if (curL > 0 && Math.abs(L - curL) < curL * 0.05) h *= 1.25;
+
+    score[L] = h; sum += h; cnt++;
+    if (h > best){ best = h; bestL = L; }
+  }
+  if (!bestL) return;
+  const prominence = best / (sum / cnt + 1e-9);
+
+  // Parabolische Verfeinerung um den Peak (Sub-Sample-Genauigkeit)
+  let L = bestL;
+  if (bestL > Lmin && bestL < Lmax){
+    const y1 = score[bestL - 1], y2 = score[bestL], y3 = score[bestL + 1];
+    const denom = y1 - 2 * y2 + y3;
+    if (denom !== 0){
+      const d = (y1 - y3) / (2 * denom);
+      if (Math.abs(d) < 1) L = bestL + d;
+    }
+  }
+  const newBpm = 60 * FS / L;
+
+  // Update nur bei klarem Peak; nah am aktuellen Tempo → glätten,
+  // weit weg → nur bei sehr hoher Konfidenz springen (echter Tempowechsel)
+  if (prominence > 1.35){
+    if (bpm && Math.abs(newBpm - bpm) / bpm < 0.06){
+      bpm = bpm * 0.7 + newBpm * 0.3;
+    } else if (!bpm || prominence > 1.9){
+      bpm = newBpm;
+      nextBeatAt = 0;                      // Grid neu ausrichten
+    } else {
+      return;                              // widersprüchlich & unsicher → behalten
+    }
+    periodMs = 60000 / bpm;
+    conf = Math.max(conf * 0.6, Math.min(1, (prominence - 1) / 1.5));
+    alignPhase(nowMs, det, t0);
+    bpmNum.textContent = Math.round(bpm);
+    bpmNum.classList.remove('searching');
+    bpmSub.textContent = 'locked · ' + Math.round(conf * 100) + '%';
+    updateSyncLabel();
+  } else if (!bpm){
+    bpmSub.textContent = 'lerne…';
+  }
+}
+
+function alignPhase(nowMs, det, t0){
+  const T = periodMs, steps = 24;
+  let bestOff = 0, bestS = -1;
+  for (let s = 0; s < steps; s++){
+    const off = s * T / steps;
+    let sm = 0, k = 0;
+    for (let t = nowMs - off; t >= t0 + 300; t -= T){
+      const n = Math.round((t - t0) * FS / 1000);
+      if (n >= 0 && n < det.length){ sm += det[n]; k++; }
+    }
+    if (k && sm / k > bestS){ bestS = sm / k; bestOff = off; }
+  }
+  const target = nowMs - bestOff + T;      // nächster Beat laut Onset-Kurve
+  if (!nextBeatAt){ nextBeatAt = target; return; }
+  // PLL: Phasenfehler in ±T/2 falten und nur zu 40 % korrigieren
+  let err = ((target - nextBeatAt) % T + 1.5 * T) % T;
+  if (err > T / 2) err -= T;
+  nextBeatAt += err * 0.4;
+}
+
+/* ---------------- Choreografie: Move-System ---------------- */
+/* Jeder Move ist eine Funktion, die auf einer neutralen Pose aufsetzt und
+   aus Beat-Phase p, Dip, Seiten-Richtung dir und Intensität k die Bone-
+   Rotationen berechnet. Gewechselt wird alle 8 Beats. */
+
+const SIDES = [['L', 1], ['R', -1]];
+
+function resetPose(){
+  bones.hips.position.set(0, 0.90, 0);
+  for (const n of ['hips','spine','chest','neck','head']) bones[n].rotation.set(0, 0, 0);
+  for (const [side, sx] of SIDES){
+    bones['upper_arm.'+side].rotation.set(-0.15, 0, sx * 0.30);
+    bones['forearm.'  +side].rotation.set(-0.40, 0, 0);
+    bones['hand.'     +side].rotation.set(0, 0, 0);
+    bones['thigh.'    +side].rotation.set(0, 0, 0);
+    bones['shin.'     +side].rotation.set(0, 0, 0);
+    bones['foot.'     +side].rotation.set(0, 0, 0);
+  }
+}
+
+/* c = {k, p, dip, dir, s1, s2, nod} — s1: Bogen über den Beat, s2: volle Welle */
+const MOVES = [
+{ name: 'GROOVE', fn(c){                       // der bisherige Basis-Move
+  const {k, p, dip, dir, s1, nod} = c;
+  bones.hips.position.y -= 0.075 * k * dip;
+  bones.hips.rotation.z  = 0.10 * k * dip * dir;
+  bones.hips.rotation.y  = 0.14 * k * s1 * dir;
+  bones.chest.rotation.z = -0.07 * k * dip * dir;
+  bones.chest.rotation.y = -0.18 * k * s1 * dir;
+  bones.spine.rotation.x = 0.05 * k * dip;
+  bones.head.rotation.x  = -0.30 * k * nod + 0.06 * k * dip;
+  bones.head.rotation.z  = 0.05 * k * dip * dir;
+  for (const [side, sx] of SIDES){
+    bones['upper_arm.'+side].rotation.z = sx * (0.35 + 0.15 * k * dip);
+    bones['upper_arm.'+side].rotation.x = -0.25 - 0.55 * k * s1 * dir * sx;
+    bones['forearm.'  +side].rotation.x = -0.85 - 0.55 * k * dip;
+    bones['hand.'     +side].rotation.x = -0.2 * k * dip;
+  }
+  bendKnees(0.45 * k * dip);
+}},
+{ name: 'DISCO POINT', fn(c){                  // Saturday-Night-Fever-Zeigefinger
+  const {k, dip, dir, s1} = c;
+  const pt = dir > 0 ? 'L' : 'R', hip = dir > 0 ? 'R' : 'L';
+  const sxP = dir, sxH = -dir;
+  bones.hips.position.y -= 0.05 * k * dip;
+  bones.hips.rotation.z  = 0.09 * k * s1 * dir;
+  bones.chest.rotation.z = 0.10 * k * s1 * dir;
+  bones.head.rotation.z  = -0.10 * k * s1 * dir;
+  bones.head.rotation.y  = 0.25 * k * s1 * dir;          // Blick folgt der Hand
+  // Zeigearm: diagonal nach schräg oben, auf dem Beat voll gestreckt
+  bones['upper_arm.'+pt].rotation.z = sxP * (0.9 + 1.5 * k * dip);
+  bones['upper_arm.'+pt].rotation.x = -0.35;
+  bones['forearm.'  +pt].rotation.x = -0.55 + 0.45 * k * dip;   // streckt sich
+  // Andere Hand in die Hüfte
+  bones['upper_arm.'+hip].rotation.z = sxH * 0.85;
+  bones['forearm.'  +hip].rotation.x = -1.9;
+  bones['forearm.'  +hip].rotation.z = sxH * -0.6;
+  bendKnees(0.30 * k * dip);
+}},
+{ name: 'RUNNING MAN', fn(c){                  // Laufschritt auf der Stelle
+  const {k, dip, dir, s1, nod} = c;
+  bones.hips.position.y -= 0.10 * k * dip;
+  bones.spine.rotation.x = 0.12 * k;                     // leicht vorgebeugt
+  bones.head.rotation.x  = -0.25 * k * nod;
+  const front = dir > 0 ? 'L' : 'R', back = dir > 0 ? 'R' : 'L';
+  bones['thigh.'+front].rotation.x =  0.85 * k * s1;     // Knie hoch
+  bones['shin.' +front].rotation.x = -1.30 * k * s1;
+  bones['foot.' +front].rotation.x =  0.50 * k * s1;
+  bones['thigh.'+back ].rotation.x = -0.35 * k * s1;     // Standbein schiebt zurück
+  bones['shin.' +back ].rotation.x = -0.25 * k * s1;
+  for (const [side, sx] of SIDES){                       // Arme pumpen gegengleich
+    const opp = (side === front) ? -1 : 1;
+    bones['upper_arm.'+side].rotation.z = sx * 0.25;
+    bones['upper_arm.'+side].rotation.x = -0.25 + 0.80 * k * s1 * opp;
+    bones['forearm.'  +side].rotation.x = -1.45;
+  }
+}},
+{ name: 'TWIST', fn(c){                        // Chubby-Checker-Hüftschwung
+  const {k, p, dip, dir, s2} = c;
+  const tw = 0.55 * k * Math.sin((beatCount + p) * Math.PI);   // durchgehende Welle
+  bones.hips.position.y -= 0.05 * k * dip;
+  bones.hips.rotation.y  = tw;                           // Unterkörper dreht…
+  bones.chest.rotation.y = -1.7 * tw;                    // …Oberkörper kontert
+  bones.head.rotation.y  = 0.6 * tw;
+  for (const [side, sx] of SIDES){                       // Arme angewinkelt, schwingen mit
+    bones['upper_arm.'+side].rotation.z = sx * 0.55;
+    bones['upper_arm.'+side].rotation.x = -0.35;
+    bones['forearm.'  +side].rotation.x = -1.55;
+    bones['foot.'     +side].rotation.y = -0.8 * tw;     // Füße pivotieren auf dem Ballen
+  }
+  bendKnees(0.35 * k * (0.6 + 0.4 * dip));
+}},
+{ name: 'RAISE THE ROOF', fn(c){               // beide Hände pushen nach oben
+  const {k, dip, dir, s1, nod} = c;
+  bones.hips.position.y -= 0.07 * k * dip;
+  bones.hips.rotation.z  = 0.05 * k * s1 * dir;
+  bones.spine.rotation.x = -0.12 * k * dip;              // leicht ins Hohlkreuz
+  bones.head.rotation.x  = 0.28 * k * dip - 0.1 * k * nod;   // Blick nach oben
+  for (const [side, sx] of SIDES){
+    bones['upper_arm.'+side].rotation.z = sx * (2.45 + 0.25 * k * dip);
+    bones['upper_arm.'+side].rotation.x = -0.15;
+    bones['forearm.'  +side].rotation.x = -1.15 + 0.95 * k * dip;  // Push = strecken
+    bones['hand.'     +side].rotation.x = 1.4;           // Handflächen zur Decke
+  }
+  bendKnees(0.40 * k * dip);
+}},
+{ name: 'SIDE CLAP', fn(c){                    // Side-Step mit Clap vor der Brust
+  const {k, dip, dir, s1} = c;
+  bones.hips.position.x  = 0.16 * k * s1 * dir;          // Schritt zur Seite
+  bones.hips.position.y -= 0.06 * k * dip;
+  bones.hips.rotation.z  = -0.06 * k * s1 * dir;
+  bones.chest.rotation.z = 0.10 * k * s1 * dir;          // lehnt in den Schritt
+  bones.head.rotation.z  = -0.06 * k * s1 * dir;
+  for (const [side, sx] of SIDES){
+    bones['upper_arm.'+side].rotation.z = sx * 0.30;
+    bones['upper_arm.'+side].rotation.x = -0.95;
+    bones['upper_arm.'+side].rotation.y = -sx * 0.75 * k * dip;   // Hände zueinander
+    bones['forearm.'  +side].rotation.x = -0.55 - 0.25 * k * dip;
+  }
+  // Spielbein hebt leicht ab
+  const lift = dir > 0 ? 'R' : 'L';
+  bones['thigh.'+lift].rotation.x = 0.25 * k * dip;
+  bones['shin.' +lift].rotation.x = -0.45 * k * dip;
+  bendKnees(0.20 * k * dip);
+}}
+];
+
+function bendKnees(a){                          // Knie federn, Füße bleiben flach
+  for (const side of ['L', 'R']){
+    bones['thigh.'+side].rotation.x += a;
+    bones['shin.' +side].rotation.x += -1.9 * a;
+    bones['foot.' +side].rotation.x += 0.9 * a;
+  }
+}
+
+let currentMove = 0;
+const moveTag = document.getElementById('moveTag');
+function nextMove(){
+  let n;
+  do { n = Math.floor(Math.random() * MOVES.length); } while (n === currentMove);
+  currentMove = n;
+  moveTag.textContent = MOVES[n].name;
+  moveTag.classList.remove('pop'); void moveTag.offsetWidth;   // Animation neu triggern
+  moveTag.classList.add('pop');
+}
+
+function dance(dt, nowS){
+  const userAmp = parseInt(el('moves').value, 10) / 100;
+  const k = playing
+    ? userAmp * Math.min(1, 0.35 + energySm * 1.6)   // Energie moduliert Amplitude
+    : 0;
+
+  const p    = Math.min(beatPhase, 1);
+  const dip  = Math.pow(Math.sin(p * Math.PI), 1.4);   // runter auf den Beat
+  const dir  = (beatCount % 2) ? 1 : -1;               // Seite wechselt pro Beat
+  const s1   = Math.sin(p * Math.PI);
+  const s2   = Math.sin(p * Math.PI * 2);
+  const nod  = Math.exp(-p * 5);                       // klingt nach dem Beat ab
+
+  resetPose();
+
+  if (k > 0){
+    MOVES[currentMove].fn({k, p, dip, dir, s1, s2, nod});
+  } else {
+    // Idle: ruhiges Atmen
+    const idle = Math.sin(nowS * 1.2);
+    bones.hips.position.y += 0.01 * idle;
+    bones.chest.rotation.y = 0.04 * idle;
+    bones.head.rotation.x  = 0.03 * Math.sin(nowS * 0.9);
+    bendKnees(0.03);
+  }
+
+  // Beat-Flash: Licht, Ringe, HUD-Tick
+  beatFlash = Math.max(0, beatFlash - dt * 4);
+  beatLight.intensity = beatFlash * 1.6;
+  tick.classList.toggle('on', beatFlash > 0.55);
+  rings.forEach((r, i) => {
+    const ph = beatFlash - i * 0.18;
+    if (ph > 0){
+      const s = 0.4 + (1 - ph) * (1.4 + i * 0.5);
+      r.scale.set(s, s, 1);
+      r.material.opacity = ph * 0.5;
+    } else r.material.opacity = 0;
+  });
+}
+
+/* ---------------- Spektrum-Anzeige ---------------- */
+const vu = el('vu'), vctx = vu.getContext('2d');
+function drawVU(){
+  const w = vu.clientWidth, h = vu.clientHeight;
+  if (vu.width !== w * 2){ vu.width = w * 2; vu.height = h * 2; }
+  vctx.clearRect(0, 0, vu.width, vu.height);
+  if (!freq) return;
+  const bars = 48, step = Math.floor(120 / bars);
+  const bw = vu.width / bars;
+  for (let i = 0; i < bars; i++){
+    const v = freq[i * step] / 255;
+    const bh = Math.max(2, v * vu.height);
+    vctx.fillStyle = i < 4 ? '#ff2d95' : '#26e6ff';
+    vctx.globalAlpha = 0.25 + v * 0.75;
+    vctx.fillRect(i * bw, vu.height - bh, bw * 0.6, bh);
+  }
+  vctx.globalAlpha = 1;
+}
+
+/* ---------------- Wellenform + Seek ---------------- */
+const waveWrap = el('waveWrap'), waveC = el('wave'),
+      wctx = waveC.getContext('2d'), wtime = el('wtime');
+let peaks = null, waveBase = null, waveHot = null;
+let dragging = false, dragFrac = 0;
+
+function computePeaks(buffer, buckets = 900){
+  const chs = [];
+  for (let c = 0; c < Math.min(2, buffer.numberOfChannels); c++) chs.push(buffer.getChannelData(c));
+  const step = buffer.length / buckets;
+  peaks = new Float32Array(buckets);
+  let maxV = 1e-6;
+  for (let b = 0; b < buckets; b++){
+    const s0 = Math.floor(b * step), s1 = Math.floor((b + 1) * step);
+    let sum = 0, n = 0;
+    for (let s = s0; s < s1; s += 16){          // Stride reicht fürs Bild
+      for (const ch of chs) sum += ch[s] * ch[s];
+      n += chs.length;
+    }
+    peaks[b] = Math.sqrt(sum / Math.max(1, n)); // RMS pro Bucket
+    if (peaks[b] > maxV) maxV = peaks[b];
+  }
+  // Normalisieren + leichte Kompression → Hook/Drop stechen sichtbar raus
+  for (let b = 0; b < buckets; b++) peaks[b] = Math.pow(peaks[b] / maxV, 0.7);
+  waveBase = null;                              // Layer neu rendern
+}
+
+function renderWaveLayers(w, h){
+  waveBase = document.createElement('canvas'); waveBase.width = w; waveBase.height = h;
+  waveHot  = document.createElement('canvas'); waveHot.width  = w; waveHot.height  = h;
+  for (const [cv, col] of [[waveBase, '#3a3f4a'], [waveHot, '#ff2d95']]){
+    const c = cv.getContext('2d');
+    c.fillStyle = col;
+    const n = peaks.length, bw = w / n;
+    for (let i = 0; i < n; i++){
+      const bh = Math.max(2, peaks[i] * (h - 10));
+      c.fillRect(i * bw, (h - bh) / 2, Math.max(1, bw * 0.6), bh);
+    }
+  }
+}
+
+function fmtTime(s){
+  s = Math.max(0, Math.floor(s));
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+
+function currentPos(){
+  if (!audioBuffer) return 0;
+  const t = (playing && !usingMic) ? actx.currentTime - startedAt : pauseOffset;
+  const d = audioBuffer.duration;
+  return ((t % d) + d) % d;                     // loop-sicher
+}
+
+function updateWave(){
+  if (!peaks || !audioBuffer || waveWrap.classList.contains('hidden')) return;
+  const w = waveC.clientWidth * 2, h = waveC.clientHeight * 2;
+  if (!w) return;
+  if (waveC.width !== w){ waveC.width = w; waveC.height = h; waveBase = null; }
+  if (!waveBase) renderWaveLayers(w, h);
+  const frac = dragging ? dragFrac : currentPos() / audioBuffer.duration;
+  wctx.clearRect(0, 0, w, h);
+  wctx.drawImage(waveBase, 0, 0);
+  wctx.save();                                  // gespielter Teil in Magenta
+  wctx.beginPath(); wctx.rect(0, 0, w * frac, h); wctx.clip();
+  wctx.drawImage(waveHot, 0, 0);
+  wctx.restore();
+  wctx.fillStyle = '#26e6ff';                   // Playhead
+  wctx.fillRect(w * frac - 1, 0, 3, h);
+  wtime.textContent = fmtTime(dragging ? dragFrac * audioBuffer.duration : currentPos())
+                    + ' / ' + fmtTime(audioBuffer.duration);
+}
+
+function seekTo(frac){
+  if (!audioBuffer) return;
+  pauseOffset = Math.min(0.999, Math.max(0, frac)) * audioBuffer.duration;
+  if (playing && !usingMic) startPlayback(true);  // Tempo behalten, Grid neu ausrichten
+  else updateWave();
+}
+
+function waveFrac(ev){
+  const r = waveC.getBoundingClientRect();
+  return Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width));
+}
+waveC.addEventListener('pointerdown', ev => {
+  if (!audioBuffer || usingMic) return;
+  dragging = true; dragFrac = waveFrac(ev);
+  waveC.setPointerCapture(ev.pointerId);
+});
+waveC.addEventListener('pointermove', ev => { if (dragging) dragFrac = waveFrac(ev); });
+waveC.addEventListener('pointerup', ev => {
+  if (!dragging) return;
+  dragging = false;
+  seekTo(waveFrac(ev));                          // erst beim Loslassen wirklich seeken
+});
+
+/* ---------------- Loop ---------------- */
+let prevT = performance.now();
+function animate(){
+  requestAnimationFrame(animate);
+  const now = performance.now();
+  const dt = Math.min((now - prevT) / 1000, 0.05);
+  prevT = now;
+
+  if (playing && analyser){
+    sampleAudio(now);
+    if (!manualBpm && now - lastAnalysisAt > 400){ lastAnalysisAt = now; analyzeTempo(now); }
+
+    /* Visuelle Uhr: läuft offsetMs hinter der Analyse-Uhr.
+       Die Engine (Tempo, Phase-Alignment) bleibt in Echtzeit an der
+       Audioquelle — nur Beats/Phase für die Darstellung werden verzögert.
+       Da das Grid periodisch ist, reicht ein Offset von 0..1 Beat, um
+       JEDE Kettenlatenz auszugleichen (Modulo-Trick). */
+    const vnow = now - offsetMs;
+
+    if (periodMs > 0){
+      // Grid-Modus: Beats feuern vom Raster, Akzentstärke aus dem Signal
+      if (!nextBeatAt) nextBeatAt = vnow + periodMs;
+      while (vnow >= nextBeatAt){
+        beatCount++;
+        if (beatCount % 8 === 0) nextMove();
+        beatFlash = Math.min(1, 0.55 + accent * 0.2);
+        nextBeatAt += periodMs;
+      }
+      beatPhase = 1 - (nextBeatAt - vnow) / periodMs;
+    } else {
+      // Fallback vor dem Tempo-Lock: adaptive Onsets, um offsetMs verzögert
+      const gate = 1.5 + (parseInt(el('sens').value, 10) - 110) * 0.03; // 1.5–3.6 σ
+      if (accent > gate && now - lastOnsetAt > 280){
+        lastOnsetAt = now;
+        pendingOnsets.push(now + offsetMs);
+      }
+      while (pendingOnsets.length && now >= pendingOnsets[0]){
+        pendingOnsets.shift();
+        beatCount++; beatFlash = 1; beatPhase = 0;
+        if (beatCount % 8 === 0) nextMove();
+      }
+      beatPhase = Math.min(beatPhase + dt * 2, 1.2);   // ~120 BPM Annahme
+    }
+    drawVU();
+  }
+
+  updateWave();
+
+  dance(dt, now / 1000);
+
+  // Kamera schwebt leicht
+  camera.position.x = Math.sin(now / 1000 * 0.15) * 0.5;
+  camera.position.y = 1.5 + Math.sin(now / 1000 * 0.4) * 0.05;
+  camera.lookAt(0, 0.85, 0);
+
+  renderer.render(scene, camera);
+}
+
+function resize(){
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+resize();
+animate();
+
+/* ---------------- UI-Verkabelung ---------------- */
+el('btnLoad').addEventListener('click', () => el('file').click());
+el('file').addEventListener('change', e => {
+  if (e.target.files[0]){ stopMic(); loadFile(e.target.files[0]); }
+});
+el('btnPlay').addEventListener('click', () => {
+  if (usingMic) return;
+  playing && !usingMic ? pausePlayback() : startPlayback();
+});
+el('btnMic').addEventListener('click', () => usingMic ? stopMic() : startMic());
+
+/* Sync-Offset: ms-Anzeige plus Umrechnung in Beats beim aktuellen Tempo */
+function updateSyncLabel(){
+  const beats = bpm > 0 ? ' · ' + (offsetMs / (60000 / bpm)).toFixed(2) + ' Beats' : '';
+  el('syncLabel').textContent = 'Sync-Offset · ' + offsetMs + ' ms' + beats;
+}
+el('sync').addEventListener('input', e => {
+  offsetMs = parseInt(e.target.value, 10);
+  updateSyncLabel();
+});
+
+/* ---------------- Tap-Tempo (manueller Override) ---------------- */
+function tapTempo(){
+  const t = performance.now();
+  if (taps.length && t - taps[taps.length - 1] > 2000) taps.length = 0;  // Pause → neu ansetzen
+  taps.push(t);
+  if (taps.length > 9) taps.shift();                 // Mittel über max. 8 Intervalle
+
+  const btn = el('btnTap');                          // visuelles Feedback pro Tap
+  btn.classList.remove('hit'); void btn.offsetWidth;
+  btn.classList.add('hit');
+
+  if (taps.length < 2){ bpmSub.textContent = 'tap · weiter tippen'; return; }
+
+  let mean = 0;
+  for (let i = 1; i < taps.length; i++) mean += taps[i] - taps[i - 1];
+  mean /= taps.length - 1;
+
+  manualBpm = true;
+  bpm = 60000 / mean;
+  periodMs = mean;
+  conf = 1;
+  // Der letzte Tap IST ein Beat (Analyse-Domäne) — der Sync-Offset
+  // wirkt wie im Auto-Modus obendrauf. Grid vom Tap aus in die Zukunft.
+  nextBeatAt = taps[taps.length - 1];
+  while (nextBeatAt <= performance.now() - offsetMs) nextBeatAt += periodMs;
+
+  bpmNum.textContent = Math.round(bpm);
+  bpmNum.classList.remove('searching');
+  bpmSub.textContent = 'manuell · ' + (taps.length - 1) + ' Intervalle';
+  btn.classList.add('armed');
+  el('btnAuto').disabled = false;
+  updateSyncLabel();
+}
+
+function backToAuto(){
+  manualBpm = false; taps.length = 0;
+  el('btnTap').classList.remove('armed');
+  el('btnAuto').disabled = true;
+  // bpm/periodMs/Grid bewusst behalten: der Tänzer läuft nahtlos weiter,
+  // die Auto-Analyse übernimmt beim nächsten Tick (Hysterese greift).
+  bpmSub.textContent = bpm > 0 ? 'auto · übernimmt…' : 'warte auf Beat';
+}
+
+el('btnTap').addEventListener('click', tapTempo);
+el('btnAuto').addEventListener('click', backToAuto);
+window.addEventListener('keydown', e => {
+  if (e.code === 'KeyT' && !e.repeat && e.target.tagName !== 'INPUT') tapTempo();
+});
+
+/* Drag & Drop */
+window.addEventListener('dragover', e => { e.preventDefault(); document.body.classList.add('dragging'); });
+window.addEventListener('dragleave', e => { if (!e.relatedTarget) document.body.classList.remove('dragging'); });
+window.addEventListener('drop', e => {
+  e.preventDefault();
+  document.body.classList.remove('dragging');
+  const f = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f && f.type.startsWith('audio')){ stopMic(); loadFile(f); }
+});
+</script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, ipcMain, systemPreferences } from 'electron';
+import { app, BrowserWindow, globalShortcut, ipcMain } from 'electron';
 import * as path from 'node:path';
 
 let wall: BrowserWindow | null = null;
@@ -12,10 +12,14 @@ function createWindows() {
   wall = new BrowserWindow({
     width: 1280,
     height: 720,
+    // 1280×720 soll der INHALT sein (sonst klaut die Titelleiste Höhe → Letterbox-Balken)
+    useContentSize: true,
     backgroundColor: '#000000',
     autoHideMenuBar: true,
     webPreferences: { contextIsolation: true, nodeIntegration: false, preload },
   });
+  // Beim manuellen Resizen 16:9 halten — im Fenstermodus keine schwarzen Balken
+  wall.setAspectRatio(16 / 9);
   wall.loadFile(path.join(rendererDir, 'wall.html'));
 
   // Steuerung für den Operator
@@ -64,12 +68,7 @@ ipcMain.on('msg', (event, msg: { type?: string }) => {
   if (target && !target.isDestroyed()) target.webContents.send('msg', msg);
 });
 
-app.whenReady().then(async () => {
-  // macOS: Mikrofon-Berechtigung anfragen (für das Applausometer)
-  if (process.platform === 'darwin') {
-    await systemPreferences.askForMediaAccess('microphone');
-  }
-
+app.whenReady().then(() => {
   createWindows();
 
   // F11: Wall-Vollbild togglen

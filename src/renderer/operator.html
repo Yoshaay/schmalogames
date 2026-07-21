@@ -4,6 +4,28 @@
     <meta charset="utf-8" />
     <title>Schmalogames — Operator</title>
     <style>
+      /* TheSans (BR-Hausschrift) — liegt gebündelt in dist/renderer/fonts */
+      @font-face {
+        font-family: 'TheSans';
+        src: url('fonts/TheSansC5s-5_Plain.otf') format('opentype');
+        font-weight: 400;
+      }
+      @font-face {
+        font-family: 'TheSans';
+        src: url('fonts/TheSansC5s-6_SemiBold.otf') format('opentype');
+        font-weight: 600;
+      }
+      @font-face {
+        font-family: 'TheSans';
+        src: url('fonts/TheSansC5s-7_Bold.otf') format('opentype');
+        font-weight: 700;
+      }
+      @font-face {
+        font-family: 'TheSans';
+        src: url('fonts/TheSansC5s-8_ExtraBold.otf') format('opentype');
+        font-weight: 800;
+      }
+
       :root {
         --bg: #0e0f13;
         --panel: #16181f;
@@ -16,9 +38,9 @@
         --blue: #2699d6;
         --live: #e71d73;
         --ok: #9be600;
-        --font-display: 'Avenir Next Condensed', 'Futura', 'Arial Narrow', sans-serif;
+        --font-display: 'TheSans', 'Avenir Next Condensed', 'Futura', 'Arial Narrow', sans-serif;
         --font-mono: 'SF Mono', 'Menlo', 'Monaco', monospace;
-        --font-body: 'Avenir Next', 'Helvetica Neue', sans-serif;
+        --font-body: 'TheSans', 'Avenir Next', 'Helvetica Neue', sans-serif;
       }
 
       * {
@@ -329,6 +351,120 @@
         color: var(--ink-dim);
         line-height: 1.5;
       }
+
+      /* ---------- Live-Fader ---------- */
+      #live {
+        display: flex;
+        justify-content: center;
+        gap: 36px;
+        padding: 6px 0 2px;
+      }
+      .fader {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+      }
+      .fader-val {
+        font-family: var(--font-mono);
+        font-size: 24px;
+        font-weight: 600;
+        color: var(--primary);
+        font-variant-numeric: tabular-nums;
+      }
+      .fader-body {
+        display: flex;
+        align-items: stretch;
+        gap: 12px;
+        /* Luft für die überstehende Fader-Kappe an den Endanschlägen */
+        margin: 10px 0;
+      }
+      .fader-scale {
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        align-items: flex-end;
+        font-family: var(--font-mono);
+        font-size: 10px;
+        color: var(--ink-dim);
+        transform: translateY(-0.5em);
+        margin-bottom: -1em;
+      }
+      .fader-track {
+        position: relative;
+        width: 58px;
+        height: 300px;
+        background: #101218;
+        border: 1px solid var(--panel-edge);
+        border-radius: 6px;
+        cursor: grab;
+        touch-action: none;
+      }
+      .fader-track:active {
+        cursor: grabbing;
+      }
+      /* Farbzonen wie das Meter auf der Wall: unten grün, dann orange, oben pink */
+      .fader-zones {
+        position: absolute;
+        inset: 1px;
+        border-radius: 5px;
+        background: linear-gradient(
+          to top,
+          #94c01c 0%,
+          #94c01c 50%,
+          #f9b233 50%,
+          #f9b233 75%,
+          #e71d73 75%,
+          #e71d73 100%
+        );
+      }
+      .zones-hint {
+        opacity: 0.12;
+      }
+      .fader-ticks {
+        position: absolute;
+        inset: 1px;
+        border-radius: 5px;
+        background: repeating-linear-gradient(
+          to top,
+          transparent 0,
+          transparent calc(10% - 1px),
+          rgba(255, 255, 255, 0.09) calc(10% - 1px),
+          rgba(255, 255, 255, 0.09) 10%
+        );
+        pointer-events: none;
+      }
+      .fader-grip {
+        position: absolute;
+        left: -9px;
+        right: -9px;
+        height: 34px;
+        margin-bottom: -17px;
+        border-radius: 5px;
+        background: linear-gradient(#3a3f4e, #20232d 45%, #171a22);
+        border: 1px solid #4a5064;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.55);
+        pointer-events: none;
+      }
+      .fader-grip::after {
+        content: '';
+        position: absolute;
+        left: 7px;
+        right: 7px;
+        top: 50%;
+        height: 2px;
+        margin-top: -1px;
+        background: var(--primary);
+        border-radius: 1px;
+        box-shadow: 0 0 6px rgba(148, 192, 28, 0.7);
+      }
+      .fader-label {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--ink-dim);
+      }
     </style>
   </head>
   <body>
@@ -349,6 +485,10 @@
             <video id="preview" autoplay muted playsinline></video>
           </div>
         </div>
+        <div class="panel" id="game-panel" hidden>
+          <h2 id="game-panel-title">Spiel</h2>
+          <div id="game-ui"></div>
+        </div>
         <div class="panel">
           <h2>Status</h2>
           <div id="status"><div class="status-empty">Kein Spiel aktiv.</div></div>
@@ -360,6 +500,10 @@
           <h2>Spiele</h2>
           <div id="games"></div>
           <button class="btn-stop" id="stop">■ Stop — Leerlaufbild</button>
+        </div>
+        <div class="panel" id="live-panel" hidden>
+          <h2>Live</h2>
+          <div id="live"></div>
         </div>
         <div class="panel">
           <h2>Einstellungen</h2>

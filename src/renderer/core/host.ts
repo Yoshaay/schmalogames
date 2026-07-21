@@ -14,7 +14,6 @@ export class GameHost {
   private values: SettingValues = {};
   private lastTime = 0;
   private stateTimer = 0;
-  private idleTime = 0;
 
   // Live-Vorschau: der Canvas wird per WebRTC als Videostream
   // ans Operator-Fenster gestreamt (Signaling über den Nachrichtenkanal)
@@ -59,12 +58,16 @@ export class GameHost {
       case 'set': {
         if (!this.entry) break;
         this.values[msg.key as string] = msg.value as number;
-        localStorage.setItem(`settings.${this.entry.id}`, JSON.stringify(this.values));
+        this.saveValues();
         this.current?.applySettings?.(this.values);
         break;
       }
       case 'action':
         this.current?.action?.(msg.id as string);
+        break;
+      case 'game':
+        // Nachricht vom spielspezifischen Operator-Panel
+        this.current?.onMessage?.(msg.payload);
         break;
       case 'preview-ready':
         this.startPreviewStream();
@@ -122,13 +125,36 @@ export class GameHost {
       const raw = localStorage.getItem(`settings.${entry.id}`);
       if (raw) Object.assign(values, JSON.parse(raw));
     } catch {}
+    // Transiente Werte starten immer auf default
+    for (const def of entry.settings ?? []) {
+      if (def.transient) values[def.key] = def.default;
+    }
     return values;
+  }
+
+  /** Persistiert die aktuellen Werte — ohne transiente (z.B. Live-Fader) */
+  private saveValues() {
+    if (!this.entry) return;
+    const persist: SettingValues = {};
+    for (const def of this.entry.settings ?? []) {
+      if (!def.transient && this.values[def.key] !== undefined) persist[def.key] = this.values[def.key];
+    }
+    localStorage.setItem(`settings.${this.entry.id}`, JSON.stringify(persist));
   }
 
   private makeContext(): GameContext {
     return {
       input: this.input,
       exit: () => this.stopGame(),
+      setSetting: (key, value) => {
+        this.values[key] = value;
+        this.saveValues();
+        this.current?.applySettings?.(this.values);
+        this.sendState();
+      },
+      sendToOperator: (payload) => {
+        window.bus.send({ type: 'game-event', payload });
+      },
     };
   }
 
@@ -171,7 +197,7 @@ export class GameHost {
       if (this.current) {
         this.current.render(this.g);
       } else {
-        this.renderIdle(dt);
+        this.renderIdle();
       }
 
       this.stateTimer += dt;
@@ -189,15 +215,9 @@ export class GameHost {
     });
   }
 
-  private renderIdle(dt: number) {
-    this.idleTime += dt;
-    const g = this.g;
-    g.fillStyle = '#0b0b12';
-    g.fillRect(0, 0, VIEW_W, VIEW_H);
-    const pulse = 0.45 + 0.2 * Math.sin(this.idleTime * 1.5);
-    g.textAlign = 'center';
-    g.fillStyle = `rgba(148, 192, 28, ${pulse})`;
-    g.font = 'bold 110px system-ui, sans-serif';
-    g.fillText('SCHMALOGAMES', VIEW_W / 2, VIEW_H / 2 + 35);
+  /** Leerlauf: schlichtes Schwarz, ungebrandet — sendefähiger Cleanfeed */
+  private renderIdle() {
+    this.g.fillStyle = '#000000';
+    this.g.fillRect(0, 0, VIEW_W, VIEW_H);
   }
 }

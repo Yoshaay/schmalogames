@@ -10,8 +10,12 @@
     "dev": "npm run build && electron . --dev"
   },
   "devDependencies": {
+    "@types/three": "^0.128.0",
     "electron": "^36.0.0",
     "esbuild": "^0.25.0",
     "typescript": "^5.8.0"
+  },
+  "dependencies": {
+    "three": "^0.128.0"
   }
 }
