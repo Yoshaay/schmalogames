@@ -52,6 +52,9 @@ export class Schmalogroove implements Game {
   /* ---------- Szene ---------- */
   private glCanvas = document.createElement('canvas');
   private bg = new Image();
+  /** Zwischenpuffer für die weiße Charakter-Silhouette (Outline) */
+  private outlineCanvas = document.createElement('canvas');
+  private outlineCtx: CanvasRenderingContext2D | null = null;
   private renderer!: THREE.WebGLRenderer;
   private scene!: THREE.Scene;
   private camera!: THREE.PerspectiveCamera;
@@ -254,6 +257,26 @@ export class Schmalogroove implements Game {
     if (this.bg.complete && this.bg.naturalWidth) g.drawImage(this.bg, 0, 0, VIEW_W, VIEW_H);
     // Ebene 2: 3D-Szene mit Alpha obendrauf
     this.renderer.render(this.scene, this.camera);
+
+    // Just-Dance-Outline im Screen-Space: die Silhouette des gerenderten
+    // Charakters weiß einfärben und ringförmig versetzt hinter ihn stempeln.
+    // Nur die Außenkontur bekommt eine Linie — keine Artefakte im Inneren.
+    if (this.outlineCtx) {
+      const oc = this.outlineCtx;
+      oc.globalCompositeOperation = 'source-over';
+      oc.clearRect(0, 0, VIEW_W, VIEW_H);
+      oc.drawImage(this.glCanvas, 0, 0);
+      oc.globalCompositeOperation = 'source-in';
+      oc.fillStyle = '#ffffff';
+      oc.fillRect(0, 0, VIEW_W, VIEW_H);
+
+      const R = 9; // Outline-Dicke in Pixeln
+      for (let k = 0; k < 16; k++) {
+        const a = (k / 16) * Math.PI * 2;
+        g.drawImage(this.outlineCanvas, Math.cos(a) * R, Math.sin(a) * R);
+      }
+    }
+
     g.drawImage(this.glCanvas, 0, 0, VIEW_W, VIEW_H);
     // Ebene 3: Auszeichnung + Konfetti über allem (auch über dem Livebild)
     this.confetti.render(g);
@@ -360,6 +383,9 @@ export class Schmalogroove implements Game {
   private buildScene() {
     this.glCanvas.width = VIEW_W;
     this.glCanvas.height = VIEW_H;
+    this.outlineCanvas.width = VIEW_W;
+    this.outlineCanvas.height = VIEW_H;
+    this.outlineCtx = this.outlineCanvas.getContext('2d');
     // alpha: die 3D-Ebene liegt über dem Hintergrund-Asset (Overlay-Optik)
     this.renderer = new THREE.WebGLRenderer({ canvas: this.glCanvas, antialias: true, alpha: true });
     this.renderer.setPixelRatio(1);
@@ -375,9 +401,10 @@ export class Schmalogroove implements Game {
     // transparenten Bühnenfläche des Hintergrunds
     this.camera.setViewOffset(VIEW_W, VIEW_H, VIEW_W / 2 - STAGE_CENTER_X, 0, VIEW_W, VIEW_H);
 
-    /* Gleichmäßiges Licht, keine Schatten, keine Effekte */
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0xb8cc88, 0.75));
-    const key = new THREE.SpotLight(0xfff2dc, 1.1, 20, Math.PI / 5, 0.5, 1.2);
+    /* Gleichmäßiges Licht, keine Schatten, keine Effekte.
+       Summe ≈ 1,0 — mehr würde die Toon-Farben Richtung Weiß clippen */
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0xdde5cc, 0.5));
+    const key = new THREE.SpotLight(0xffffff, 0.55, 20, Math.PI / 5, 0.5, 1.2);
     key.position.set(2.5, 5, 3);
     this.scene.add(key);
 

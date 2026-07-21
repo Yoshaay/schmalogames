@@ -279,8 +279,6 @@ export class Dancer {
     });
     this.applyMaterials(model);
 
-    this.addOutlines(model);
-
     this.root.add(model);
     this.root.updateWorldMatrix(true, true);
 
@@ -352,13 +350,10 @@ export class Dancer {
     gradient.needsUpdate = true;
     const toon = (color: number) => new THREE.MeshToonMaterial({ color, gradientMap: gradient, skinning: true });
 
-    const skin = toon(0xefa671); // warm + gesättigt
+    const skin = toon(0xf2f3f5); // fast weiß, nur ein Hauch Grau — Just-Dance-Haut
     const top = toon(0xe71d73); // BR3 Pink
     const leggings = toon(0x2699d6); // BR3 Blau
     const hair = toon(0xf9b233); // BR3 Orange — Just-Dance-Haarfarbe
-    const teeth = new THREE.MeshBasicMaterial({ color: 0xffffff, skinning: true });
-    const tongue = new THREE.MeshBasicMaterial({ color: 0xc0554a, skinning: true });
-    const eye = new THREE.MeshBasicMaterial({ color: 0xffffff, skinning: true });
     // Overlay-Meshes (Tränenlinie, Augen-Schatten, Wimpern) brauchen Alpha-Maps,
     // die wir nicht haben → unsichtbar schalten
     const hidden = new THREE.MeshBasicMaterial({ visible: false });
@@ -380,76 +375,13 @@ export class Dancer {
         case 'Haircut':
           mesh.material = hair;
           break;
-        case 'CC_Base_Teeth':
-          mesh.material = teeth;
-          break;
-        case 'CC_Base_Tongue':
-          mesh.material = tongue;
-          break;
-        case 'CC_Base_Eye':
-          mesh.material = eye;
-          break;
         default:
-          // TearLine, EyeOcclusion & unbekannte Hilfsmeshes
+          // Kein Gesicht: Augen, Zähne, Zunge, TearLine, EyeOcclusion & Co.
+          // komplett aus — nur die blanke Kopfform bleibt
           mesh.material = hidden;
           mesh.castShadow = false;
       }
     });
-  }
-
-  /**
-   * Weiße Just-Dance-Kontur per Inverted Hull: Mesh-Klon, im Vertex-Shader
-   * entlang der (geskinnten) Normalen aufgeblasen, nur Rückseiten in Weiß.
-   * Teilt sich das Skelett mit dem Original und tanzt dadurch exakt mit.
-   */
-  private addOutlines(model: THREE.Group) {
-    const outlineMat = new THREE.ShaderMaterial({
-      side: THREE.BackSide,
-      skinning: true,
-      uniforms: { thickness: { value: 1.1 } }, // Modell-Einheiten = cm
-      vertexShader: /* glsl */ `
-        uniform float thickness;
-        #include <common>
-        #include <skinning_pars_vertex>
-        void main() {
-          #include <beginnormal_vertex>
-          #include <skinbase_vertex>
-          #include <skinnormal_vertex>
-          #include <begin_vertex>
-          #include <skinning_vertex>
-          transformed += normalize(objectNormal) * thickness;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(transformed, 1.0);
-        }
-      `,
-      fragmentShader: /* glsl */ `
-        void main() { gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0); }
-      `,
-    });
-    // Für Material-Gruppen, die unsichtbar sind (Wimpern etc.)
-    const skipMat = new THREE.MeshBasicMaterial({ visible: false });
-
-    const targets: THREE.SkinnedMesh[] = [];
-    const OUTLINED = new Set(['CC_Base_Body', 'Tanktop', 'ShortLeggings', 'Haircut']);
-    model.traverse((o) => {
-      const mesh = o as THREE.SkinnedMesh;
-      if (mesh.isSkinnedMesh && OUTLINED.has(mesh.name)) targets.push(mesh);
-    });
-
-    for (const mesh of targets) {
-      const outline = mesh.clone() as THREE.SkinnedMesh;
-      // Gruppen-Materialien 1:1 spiegeln — versteckte Gruppen bleiben versteckt
-      outline.material = Array.isArray(mesh.material)
-        ? mesh.material.map((m, i) => {
-            // Kopf-Gruppe (Index 0 im Body) ohne Hull: an Nase/Augen würde er
-            // durchs Gesicht stechen — die Silhouette übernimmt die Haar-Kontur
-            if (mesh.name === 'CC_Base_Body' && i === 0) return skipMat;
-            return m.visible === false ? skipMat : outlineMat;
-          })
-        : outlineMat;
-      outline.castShadow = false;
-      outline.frustumCulled = false;
-      mesh.parent?.add(outline);
-    }
   }
 
   /** Zufälliger anderer Move (nie derselbe zweimal hintereinander) */
