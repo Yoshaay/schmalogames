@@ -21,6 +21,16 @@ const STYLE = `
   .gr-row button.armed { color: var(--live); border-color: rgba(231, 29, 115, 0.5); }
   @keyframes gr-taphit { 0% { background: var(--primary); color: #111; } 100% { background: transparent; } }
   .gr-row button.hit { animation: gr-taphit 0.15s ease; }
+  .gr-row select {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--ink);
+    background: #1d2029;
+    border: 1px solid var(--panel-edge);
+    border-radius: 4px;
+    padding: 8px 10px;
+    max-width: 220px;
+  }
   .gr-bpm { margin-left: auto; display: flex; align-items: baseline; gap: 10px; }
   .gr-bpm-num { font-family: var(--font-mono); font-size: 34px; font-weight: 700; color: var(--primary); font-variant-numeric: tabular-nums; }
   .gr-bpm-num.searching { color: var(--ink-dim); }
@@ -44,6 +54,9 @@ export function buildGroovePanel(container: HTMLElement, api: OperatorPanelApi):
       <button data-id="load">Track laden</button>
       <button data-id="play" disabled>Play</button>
       <button data-id="mic">Mikro</button>
+      <select data-id="micdev" title="Audio-Eingang für den Mikro-Modus">
+        <option value="default">Standard-Eingang</option>
+      </select>
       <button data-id="tap" title="Tap-Tempo — Taste T">Tap</button>
       <button data-id="auto" disabled title="Zurück zur automatischen Erkennung">Auto</button>
       <div class="gr-bpm">
@@ -90,6 +103,10 @@ export function buildGroovePanel(container: HTMLElement, api: OperatorPanelApi):
   btnPlay.onclick = () => api.send({ cmd: last?.playing ? 'pause' : 'play' });
   btnMic.onclick = () => api.send({ cmd: 'mic' });
   btnAuto.onclick = () => api.send({ cmd: 'auto' });
+
+  // Audio-Eingang fürs Mikro wählen — Liste kommt aus dem Wall-Fenster
+  const micDev = q('micdev') as unknown as HTMLSelectElement;
+  micDev.onchange = () => api.send({ cmd: 'micdev', id: micDev.value });
 
   const tap = () => {
     api.send({ cmd: 'tap' });
@@ -195,6 +212,22 @@ export function buildGroovePanel(container: HTMLElement, api: OperatorPanelApi):
       if (msg.kind === 'peaks') {
         peaks = (payload as { peaks: number[] }).peaks;
         drawWave();
+      }
+      if (msg.kind === 'inputs') {
+        const { devices, selected } = payload as { devices: Array<{ id: string; label: string }>; selected: string };
+        micDev.innerHTML = '';
+        const def = document.createElement('option');
+        def.value = 'default';
+        def.textContent = 'Standard-Eingang';
+        micDev.appendChild(def);
+        for (const d of devices) {
+          const opt = document.createElement('option');
+          opt.value = d.id;
+          opt.textContent = d.label;
+          micDev.appendChild(opt);
+        }
+        micDev.value = selected;
+        if (micDev.selectedIndex < 0) micDev.value = 'default';
       }
       if (msg.kind === 'error') nameEl.textContent = (payload as { text: string }).text;
     },

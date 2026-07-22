@@ -50,10 +50,12 @@ const backOut = (t: number) => {
 
 /** Nachrichten vom Operator-Panel (operator-panel.ts) */
 interface Cmd {
-  cmd: 'hello' | 'load' | 'play' | 'pause' | 'tap' | 'auto' | 'mic' | 'seek';
+  cmd: 'hello' | 'load' | 'play' | 'pause' | 'tap' | 'auto' | 'mic' | 'seek' | 'micdev';
   name?: string;
   data?: ArrayBuffer;
   frac?: number;
+  /** Geräte-ID des gewünschten Audio-Eingangs ('default' = Systemstandard) */
+  id?: string;
 }
 
 /**
@@ -81,6 +83,9 @@ export class Schmalogroove implements Game {
   private freq: Uint8Array<ArrayBuffer> | null = null;
   private sourceNode: AudioBufferSourceNode | null = null;
   private micStream: MediaStream | null = null;
+  /** gewählter Audio-Eingang (persistiert), null = Systemstandard */
+  private micDeviceId: string | null = localStorage.getItem('groove.micDevice');
+  private onDeviceChange = () => this.sendInputList();
   private audioBuffer: AudioBuffer | null = null;
   private trackName = '';
   private playing = false;
@@ -130,9 +135,11 @@ export class Schmalogroove implements Game {
     this.engine.onBeat = () => {
       if (this.engine.beatCount % 8 === 0) this.dancer.nextMove();
     };
+    navigator.mediaDevices.addEventListener('devicechange', this.onDeviceChange);
   }
 
   dispose() {
+    navigator.mediaDevices.removeEventListener('devicechange', this.onDeviceChange);
     this.stopSource();
     this.actx?.close();
     this.actx = null;
@@ -213,6 +220,17 @@ export class Schmalogroove implements Game {
       case 'hello':
         // Operator-Panel (neu) gestartet — aktuellen Stand nachliefern
         if (this.audioBuffer) this.sendPeaks();
+        this.sendInputList();
+        break;
+      case 'micdev':
+        this.micDeviceId = msg.id && msg.id !== 'default' ? msg.id : null;
+        if (this.micDeviceId) localStorage.setItem('groove.micDevice', this.micDeviceId);
+        else localStorage.removeItem('groove.micDevice');
+        // läuft das Mikro gerade: direkt auf das neue Gerät umschalten
+        if (this.usingMic) {
+          this.stopMic();
+          this.startMic();
+        }
         break;
       case 'load':
         if (msg.data) this.loadTrack(msg.name ?? 'Track', msg.data);
@@ -643,16 +661,38 @@ export class Schmalogroove implements Game {
     } catch {}
     try {
       this.micStream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+        audio: {
+          ...(this.micDeviceId ? { deviceId: { exact: this.micDeviceId } } : {}),
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
       });
       const src = this.actx!.createMediaStreamSource(this.micStream);
       src.connect(this.analyser!);
       this.playing = true;
       this.usingMic = true;
+      // nach erfolgreichem Zugriff sind die Geräte-Labels verfügbar
+      this.sendInputList();
     } catch {
-      this.ctx?.sendToOperator({ kind: 'error', text: 'Mikrofon-Zugriff verweigert' });
+      this.ctx?.sendToOperator({ kind: 'error', text: 'Audio-Eingang nicht verfügbar' });
     }
     this.sendTick();
+  }
+
+  /** Verfügbare Audio-Eingänge ans Operator-Panel schicken */
+  private async sendInputList() {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const inputs = devices
+        .filter((d) => d.kind === 'audioinput' && d.deviceId !== 'default')
+        .map((d, i) => ({ id: d.deviceId, label: d.label || `Eingang ${i + 1}` }));
+      this.ctx?.sendToOperator({
+        kind: 'inputs',
+        devices: inputs,
+        selected: this.micDeviceId ?? 'default',
+      });
+    } catch {}
   }
 
   private stopMic() {
