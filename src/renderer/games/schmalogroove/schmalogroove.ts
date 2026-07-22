@@ -3,7 +3,12 @@ import { Game, GameContext, SettingValues, VIEW_W, VIEW_H } from '../../core/gam
 import { Confetti } from '../../core/confetti';
 import { BeatEngine } from './beat';
 import { Dancer } from './dancer';
+import { MIXAMO_CLIPS } from './mixamo-clips';
 import { SpeedBurst } from './burst';
+
+// Mocap-Clips (Mixamo, auf das CC-Modell retargetet) statt prozeduraler
+// Moves. Auf false stellen → prozedurales System.
+const USE_MOCAP_CLIPS = false;
 import bgUrl from './assets/Tanzspiel_Hintergrund.png';
 
 // Position der Tänzerin im Frame: auf der grünen Fläche rechts, unter dem
@@ -86,6 +91,8 @@ export class Schmalogroove implements Game {
   /* ---------- Beat + Show ---------- */
   private engine = new BeatEngine();
   private moveAmp = 1;
+  /** Geglätteter Seitenwechsel — kein hartes Umschnappen pro Beat */
+  private dirSmooth = 1;
   private time = 0;
   private tickTimer = 0;
 
@@ -115,6 +122,7 @@ export class Schmalogroove implements Game {
   init(ctx: GameContext) {
     this.ctx = ctx;
     this.bg.src = bgUrl;
+    if (USE_MOCAP_CLIPS) this.dancer.loadMixamoClips(MIXAMO_CLIPS);
     this.buildScene();
     this.engine.onBeat = () => {
       if (this.engine.beatCount % 8 === 0) this.dancer.nextMove();
@@ -149,7 +157,8 @@ export class Schmalogroove implements Game {
       this.cheer = text;
       this.cheerTimer = this.cheerDuration;
       this.cheerTris = this.makeCheerLayout();
-      this.confetti.burst(180, CHEER_X, VIEW_H / 3);
+      // eng hinter dem Oberkörper spawnen — der Avatar verdeckt das Auftauchen
+      this.confetti.burst(180, CHEER_X, 500, 160);
       this.confettiTimer = 0.7;
     }
   }
@@ -263,7 +272,7 @@ export class Schmalogroove implements Game {
         this.confettiTimer -= dt;
         if (this.confettiTimer <= 0) {
           this.confettiTimer = 0.7;
-          this.confetti.burst(50, CHEER_X, VIEW_H / 3);
+          this.confetti.burst(50, CHEER_X, 500, 160);
         }
       }
     }
@@ -289,7 +298,11 @@ export class Schmalogroove implements Game {
     // Ebene 1: Hintergrund-Asset (transparente Bühnenfläche bleibt durchsichtig
     // fürs Keying im Ü-Wagen)
     if (this.bg.complete && this.bg.naturalWidth) g.drawImage(this.bg, 0, 0, VIEW_W, VIEW_H);
-    // Ebene 2: 3D-Szene mit Alpha obendrauf
+    // Ebene 2: Konfetti HINTER dem Charakter — die Partikel tauchen von
+    // der Silhouette verdeckt auf und werden erst beim Rausfliegen sichtbar
+    this.confetti.render(g);
+
+    // Ebene 3: 3D-Szene mit Alpha obendrauf
     this.renderer.render(this.scene, this.camera);
 
     // Just-Dance-Outline im Screen-Space: die Silhouette des gerenderten
@@ -312,8 +325,7 @@ export class Schmalogroove implements Game {
     }
 
     g.drawImage(this.glCanvas, 0, 0, VIEW_W, VIEW_H);
-    // Ebene 3: Auszeichnung + Konfetti über allem
-    this.confetti.render(g);
+    // Ebene 4: Auszeichnung obendrauf
     this.renderCheer(g);
   }
 
@@ -457,16 +469,20 @@ export class Schmalogroove implements Game {
 
     // in [0..1] klemmen — negative Phase würde über pow(sin·π) NaN erzeugen
     const p = Math.min(Math.max(this.engine.beatPhase, 0), 1);
+    // Seite wechselt pro Beat, aber weich übergeblendet statt hart geschnappt
+    const dirTarget = this.engine.beatCount % 2 ? 1 : -1;
+    this.dirSmooth += (dirTarget - this.dirSmooth) * Math.min(1, dt * 9);
     this.dancer.pose(
       {
         k,
         p,
         dip: Math.pow(Math.sin(p * Math.PI), 1.4), // runter auf den Beat
-        dir: this.engine.beatCount % 2 ? 1 : -1, // Seite wechselt pro Beat
+        dir: this.dirSmooth,
         s1: Math.sin(p * Math.PI),
         s2: Math.sin(p * Math.PI * 2),
         nod: Math.exp(-p * 5), // klingt nach dem Beat ab
         beatCount: this.engine.beatCount,
+        bpm: this.engine.bpm,
       },
       nowS,
       dt,

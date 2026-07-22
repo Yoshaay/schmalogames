@@ -20,12 +20,12 @@ export class Confetti {
   // BR3 Hellgrün, Blau, Pink, Orange
   private readonly colors = ['#9be600', '#2699d6', '#e71d73', '#f9b233'];
 
-  burst(count = 120, cx = VIEW_W / 2, cy = VIEW_H / 3) {
+  burst(count = 120, cx = VIEW_W / 2, cy = VIEW_H / 3, spread = 400) {
     for (let i = 0; i < count; i++) {
       const angle = Math.random() * Math.PI * 2;
       const speed = 300 + Math.random() * 700;
       this.particles.push({
-        x: cx + (Math.random() - 0.5) * 400,
+        x: cx + (Math.random() - 0.5) * spread,
         y: cy,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed - 400,
