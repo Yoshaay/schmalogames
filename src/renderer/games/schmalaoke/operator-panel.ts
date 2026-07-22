@@ -69,6 +69,10 @@ const STYLE = `
   }
   .ka-song:hover { background: #171a22; }
   .ka-song.active { background: rgba(148, 192, 28, 0.1); }
+  .ka-song.dragging { opacity: 0.4; }
+  .ka-song.drop-above { box-shadow: inset 0 2px 0 var(--primary); }
+  .ka-song.drop-below { box-shadow: inset 0 -2px 0 var(--primary); }
+  .ka-list.dropping { border-color: var(--primary); background: rgba(148, 192, 28, 0.06); }
   .ka-song .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
   .dot-planned { background: #3a3e4c; }
   .dot-loaded { background: #f9b233; }
@@ -164,9 +168,9 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
 
   /* ---------- Playlist ---------- */
 
-  q('add').onclick = () => fileInput.click();
-  fileInput.onchange = async () => {
-    for (const file of Array.from(fileInput.files ?? [])) {
+  async function addFiles(files: FileList | File[]) {
+    for (const file of Array.from(files)) {
+      if (!/\.lrc$/i.test(file.name)) continue;
       const content = await file.text();
       const p = new LRCParser();
       const ok = p.parseContent(content);
@@ -181,9 +185,46 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
         status: 'planned',
       });
     }
-    fileInput.value = '';
     renderSongs();
+  }
+
+  q('add').onclick = () => fileInput.click();
+  fileInput.onchange = () => {
+    void addFiles(fileInput.files ?? []);
+    fileInput.value = '';
   };
+
+  /* ---------- Drag & Drop: Dateien aus dem Finder in die Liste ---------- */
+  songsEl.addEventListener('dragover', (e) => {
+    if (e.dataTransfer?.types.includes('Files')) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      songsEl.classList.add('dropping');
+    }
+  });
+  songsEl.addEventListener('dragleave', () => songsEl.classList.remove('dropping'));
+  songsEl.addEventListener('drop', (e) => {
+    songsEl.classList.remove('dropping');
+    if (e.dataTransfer?.files.length) {
+      e.preventDefault();
+      void addFiles(e.dataTransfer.files);
+    }
+  });
+
+  /* ---------- Drag & Drop: Songs umsortieren ---------- */
+  let dragFrom = -1;
+
+  function moveSongTo(from: number, insertAt: number) {
+    // insertAt = Einfügeposition in der Liste VOR dem Entfernen
+    const to = insertAt > from ? insertAt - 1 : insertAt;
+    if (from === to) return;
+    const [song] = songs.splice(from, 1);
+    songs.splice(to, 0, song);
+    if (activeIndex === from) activeIndex = to;
+    else if (from < activeIndex && to >= activeIndex) activeIndex--;
+    else if (from > activeIndex && to <= activeIndex) activeIndex++;
+    renderSongs();
+  }
 
   function loadSong(index: number) {
     const song = songs[index];
@@ -218,6 +259,38 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     songs.forEach((song, i) => {
       const row = document.createElement('div');
       row.className = 'ka-song' + (i === activeIndex ? ' active' : '');
+
+      // Umsortieren per Drag & Drop
+      row.draggable = true;
+      row.addEventListener('dragstart', (e) => {
+        dragFrom = i;
+        row.classList.add('dragging');
+        e.dataTransfer?.setData('text/plain', String(i));
+        if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+      });
+      row.addEventListener('dragend', () => {
+        dragFrom = -1;
+        songsEl.querySelectorAll('.ka-song').forEach((r) => r.classList.remove('dragging', 'drop-above', 'drop-below'));
+      });
+      row.addEventListener('dragover', (e) => {
+        if (dragFrom < 0) return; // Datei-Drags behandelt der Container
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+        const rect = row.getBoundingClientRect();
+        const below = e.clientY > rect.top + rect.height / 2;
+        row.classList.toggle('drop-above', !below);
+        row.classList.toggle('drop-below', below);
+      });
+      row.addEventListener('dragleave', () => row.classList.remove('drop-above', 'drop-below'));
+      row.addEventListener('drop', (e) => {
+        if (dragFrom < 0) return;
+        e.preventDefault();
+        e.stopPropagation(); // nicht als Datei-Drop im Container behandeln
+        const rect = row.getBoundingClientRect();
+        const below = e.clientY > rect.top + rect.height / 2;
+        moveSongTo(dragFrom, below ? i + 1 : i);
+        dragFrom = -1;
+      });
       const dot = document.createElement('span');
       dot.className = `dot dot-${song.status}`;
       const name = document.createElement('span');

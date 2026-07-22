@@ -353,5 +353,10 @@ function fireHotkey(n: number) {
   }
 }
 
+// Sicherung: ein Datei-Drop irgendwo im Fenster darf NIE die Seite ersetzen
+// (Panels wie Schmalaoke behandeln ihre Drop-Zonen selbst)
+window.addEventListener('dragover', (e) => e.preventDefault());
+window.addEventListener('drop', (e) => e.preventDefault());
+
 // Falls das Wall-Fenster schon läuft: Vorschau-Verbindung anfordern
 window.bus.send({ type: 'preview-ready' });
