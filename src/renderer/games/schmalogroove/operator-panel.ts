@@ -89,6 +89,9 @@ export function buildGroovePanel(container: HTMLElement, api: OperatorPanelApi):
   let peaks: number[] | null = null;
   let dragging = false;
   let dragFrac = 0;
+  /** kurzzeitiger Hinweistext, überdeckt die Track-Zeile */
+  let hint: string | null = null;
+  let hintUntil = 0;
 
   /* ---------- Transport ---------- */
   q('load').onclick = () => fileInput.click();
@@ -106,7 +109,14 @@ export function buildGroovePanel(container: HTMLElement, api: OperatorPanelApi):
 
   // Audio-Eingang fürs Mikro wählen — Liste kommt aus dem Wall-Fenster
   const micDev = q('micdev') as unknown as HTMLSelectElement;
-  micDev.onchange = () => api.send({ cmd: 'micdev', id: micDev.value });
+  micDev.onchange = () => {
+    api.send({ cmd: 'micdev', id: micDev.value });
+    // Auswahl alleine startet nichts — freundlich dran erinnern
+    if (!last?.usingMic) {
+      hint = 'Eingang gewählt — „Mikro“ drücken, um ihn zu starten';
+      hintUntil = Date.now() + 5000;
+    }
+  };
 
   const tap = () => {
     api.send({ cmd: 'tap' });
@@ -194,7 +204,8 @@ export function buildGroovePanel(container: HTMLElement, api: OperatorPanelApi):
       bpmSub.textContent = t.playing ? 'lerne…' : 'warte auf Beat';
     }
 
-    if (t.usingMic) nameEl.textContent = 'Mikrofon live';
+    if (hint && Date.now() < hintUntil) nameEl.textContent = hint;
+    else if (t.usingMic) nameEl.textContent = 'Mikrofon live';
     else if (t.hasTrack) nameEl.textContent = t.trackName;
     else nameEl.textContent = 'Kein Track geladen — Audiodatei laden oder Mikro starten.';
     timeEl.textContent = t.hasTrack ? `${fmtTime(dragging ? dragFrac * t.dur : t.pos)} / ${fmtTime(t.dur)}` : '—';
