@@ -51,13 +51,28 @@ tanzt im Takt der Musik.
   das Modell retargetet, BPM-Messung per Hüft-Autokorrelation) — Umschalter:
   `USE_MOCAP_CLIPS` in `schmalogroove.ts`.
 
+### Schmalaoke
+
+Karaoke-Lyrics-Player (Port der Standalone-App SchmalKaraoke, die als Backup
+weiterexistiert). LRC-Dateien in die Setlist laden, die Wall zeigt die Zeilen
+im Conveyor-Stil (aktuelle groß, nächste klein). Panel als hochkante Sidebar:
+
+- **Presenter:** Leertaste blättert, Zeilen-Klick oder Ziffer armiert einen
+  Sprung ({Name}-Marken aus der LRC), Leertaste löst ihn aus.
+- **Auto-Advance:** Beat-Erkennung über wählbaren Audio-Eingang zählt Zeilen
+  automatisch weiter (`<N>`-Tags = Beats pro Zeile); Space bleibt als
+  Korrektur. Beat-Punkt + BPM im Panel.
+- Song-Ende lädt automatisch den nächsten Song der Setlist.
+
 ## Hotkeys (gelten in beiden Fenstern)
 
 | Taste | Aktion |
 |---|---|
-| 1–4 | Auszeichnungen (Schmalogroove) bzw. Aktionen des aktiven Spiels |
-| 5 | Speedburst |
-| T | Tap-Tempo |
+| 1–9 | Aktionen des aktiven Spiels (Groove: Cheers + Burst; Schmalaoke: Sprungmarken) |
+| Space / → / ↓ | Schmalaoke: nächste Zeile bzw. Start |
+| ← / ↑ | Schmalaoke: Zeile zurück |
+| N / Home | Schmalaoke: nächster Song / Song-Neustart |
+| T | Tap-Tempo (Schmalogroove) |
 | F11 | Wall-Vollbild |
 
 ## Ü-Wagen / Keying
@@ -77,7 +92,10 @@ einer `index.ts`, die ein `GameEntry` exportiert, plus Eintrag in
   `transient: true` = wird nicht gespeichert)
 - `actions`: Buttons im Operator (bekommen automatisch Hotkeys 1–9)
 - `buildOperatorPanel()`: optionales eigenes Operator-UI
-  (Kanal zum Spiel: `api.send()` ↔ `Game.onMessage()` / `ctx.sendToOperator()`)
+  (Kanal zum Spiel: `api.send()` ↔ `Game.onMessage()` / `ctx.sendToOperator()`;
+  Tasten aus der Wall kommen über `OperatorPanel.onKey()` an)
+- `panelLayout: 'sidebar'`: Panel als hochkante Spalte links neben der
+  Vorschau (Rundown-Stil) statt unter ihr
 
 Das Spiel selbst implementiert `Game` (`init/update/render` auf einen
 1920×1080-Canvas). Assets (PNG/FBX) einfach importieren — esbuild bündelt sie.
