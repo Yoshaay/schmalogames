@@ -96,6 +96,10 @@ export class Schmalogroove implements Game {
   private time = 0;
   private tickTimer = 0;
 
+  /* ---------- Sync-Debug: Blink-Signal auf dem visuellen Beat ---------- */
+  private debugSync = false;
+  private syncFlash = 0;
+
   /* ---------- Auszeichnung (Cheer) ---------- */
   /** Gewürfeltes Dreieck-Layout des Backdrops (pro Aktivierung neu) */
   private cheerTris: Array<{
@@ -126,6 +130,7 @@ export class Schmalogroove implements Game {
     this.buildScene();
     this.engine.onBeat = () => {
       if (this.engine.beatCount % 8 === 0) this.dancer.nextMove();
+      if (this.debugSync) this.syncFlash = 1;
     };
   }
 
@@ -146,6 +151,10 @@ export class Schmalogroove implements Game {
   action(id: string) {
     if (id === 'burst') {
       this.burst.fire();
+      return;
+    }
+    if (id === 'syncdebug') {
+      this.debugSync = !this.debugSync;
       return;
     }
     if (!id.startsWith('cheer')) return;
@@ -245,6 +254,7 @@ export class Schmalogroove implements Game {
       BPM: this.engine.bpm > 0 ? Math.round(this.engine.bpm) : '—',
       Move: this.dancer.moveName,
       Auszeichnung: this.cheer ?? '—',
+      ...(this.debugSync ? { 'Sync-Debug': 'AN' } : {}),
     };
   }
 
@@ -261,6 +271,7 @@ export class Schmalogroove implements Game {
     this.dance(dt, now / 1000);
 
     this.burst.update(dt);
+    this.syncFlash = Math.max(0, this.syncFlash - dt * 7);
 
     // Auszeichnung aktiv: Konfetti regnet nach, bis die Zeit abläuft
     this.confetti.update(dt);
@@ -327,6 +338,52 @@ export class Schmalogroove implements Game {
     g.drawImage(this.glCanvas, 0, 0, VIEW_W, VIEW_H);
     // Ebene 4: Auszeichnung obendrauf
     this.renderCheer(g);
+    if (this.debugSync) this.renderSyncDebug(g);
+  }
+
+  /**
+   * Sync-Debug: Blitz exakt auf dem visuellen Beat (gleiche Uhr wie die
+   * Tänzerin). Sync-Offset schieben, bis Blitz und hörbarer Beat
+   * zusammenfallen — dann ist auch der Tanz synchron.
+   */
+  private renderSyncDebug(g: CanvasRenderingContext2D) {
+    const cx = 610;
+    const cy = 160;
+
+    // statischer Ring als Blickanker — kontrastiert auf Weiß UND Livebild
+    g.strokeStyle = '#1a1a22';
+    g.lineWidth = 12;
+    g.beginPath();
+    g.arc(cx, cy, 80, 0, Math.PI * 2);
+    g.stroke();
+    g.strokeStyle = '#e71d73';
+    g.lineWidth = 6;
+    g.beginPath();
+    g.arc(cx, cy, 80, 0, Math.PI * 2);
+    g.stroke();
+
+    // Blitz: knallt auf dem Beat voll auf und klingt schnell ab
+    if (this.syncFlash > 0.01) {
+      g.globalAlpha = Math.pow(this.syncFlash, 0.6);
+      g.fillStyle = '#e71d73';
+      g.beginPath();
+      g.arc(cx, cy, 12 + this.syncFlash * 62, 0, Math.PI * 2);
+      g.fill();
+      g.globalAlpha = 1;
+    }
+
+    // Referenzwerte zum Ablesen beim Schieben
+    g.font = "700 40px 'TheSans', system-ui, sans-serif";
+    g.textAlign = 'center';
+    g.textBaseline = 'alphabetic';
+    g.lineJoin = 'round';
+    const bpm = this.engine.bpm > 0 ? Math.round(this.engine.bpm) : '—';
+    const info = `${bpm} BPM · Offset ${Math.round(this.engine.offsetMs)} ms`;
+    g.strokeStyle = '#1a1a22';
+    g.lineWidth = 8;
+    g.strokeText(info, cx, cy + 145);
+    g.fillStyle = '#ffffff';
+    g.fillText(info, cx, cy + 145);
   }
 
   /**

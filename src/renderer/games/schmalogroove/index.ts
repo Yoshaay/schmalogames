@@ -23,6 +23,7 @@ export const schmalogrooveEntry: GameEntry = {
   actions: [
     ...CHEERS.map((cheer, i) => ({ id: `cheer${i}`, label: `🎉 ${cheer}` })),
     { id: 'burst', label: '✨ Speedburst (Publikumscam)' },
+    { id: 'syncdebug', label: '🔧 Sync-Debug (Beat-Blitz) an/aus' },
   ],
   buildOperatorPanel: buildGroovePanel,
   create: () => new Schmalogroove(),

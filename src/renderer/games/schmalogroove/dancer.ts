@@ -473,6 +473,9 @@ interface MappedBone {
   restPos: THREE.Vector3;
   /** Welt-Achsen-Offset der Grundhaltung, vorberechnet */
   neutralQuat: THREE.Quaternion;
+  /** Zwischenstufe der zweistufigen Glättung (Ease-in UND Ease-out) */
+  qMid: THREE.Quaternion;
+  posMid: THREE.Vector3;
 }
 
 const ZIEL_GROESSE = 1.72; // Körpergröße in Szene-Einheiten (m)
@@ -583,6 +586,8 @@ export class Dancer {
         neutralQuat: neutral
           ? new THREE.Quaternion().setFromEuler(new THREE.Euler(neutral[0], neutral[1], neutral[2]))
           : new THREE.Quaternion(),
+        qMid: node.quaternion.clone(),
+        posMid: node.position.clone(),
       });
     }
 
@@ -1025,6 +1030,7 @@ export class Dancer {
 
     if (c.k > 0) {
       MOVES[this.moveIndex].fn(this.dummies, c);
+      this.anchorLegs();
       this.addHumanNoise(nowS, 0.05 * c.k);
     } else {
       const idle = Math.sin(nowS * 1.2);
@@ -1037,6 +1043,26 @@ export class Dancer {
 
     this.applyToModel(dt);
     this.applyGrounding(dt);
+  }
+
+  /**
+   * Anatomie-Korrektur: Hüft-Kippungen (Roll um z, Neigung um x) dürfen
+   * nicht auf die Beine durchschlagen — im echten Leben bleiben die Füße
+   * am Boden stehen und das Becken kippt DARÜBER. Die Oberschenkel werden
+   * gegenrotiert, und die halbe Seitkippung wandert als Beugung in den
+   * Rumpf, damit der sichtbare Sway erhalten bleibt.
+   * (Hüft-Drehung um y bleibt: dafür pivotieren die Füße, siehe TWIST.)
+   */
+  private anchorLegs() {
+    const d = this.dummies;
+    const roll = d.hips.rotation.z;
+    const tilt = d.hips.rotation.x;
+    for (const side of ['L', 'R']) {
+      d['thigh.' + side].rotation.z -= roll;
+      // AXIS_FIX spiegelt die Bein-x-Achse — Vorzeichen daher gedreht
+      d['thigh.' + side].rotation.x += tilt;
+    }
+    d.spine.rotation.z += roll * 0.5;
   }
 
   /**
@@ -1109,7 +1135,10 @@ export class Dancer {
     const dtc = Math.min(dt, 0.1);
 
     for (const [name, m] of this.mapped) {
-      const follow = 1 - Math.exp(-dtc * (Dancer.FOLLOW[name] ?? 14));
+      // zweistufig gefiltert: Ziel → qMid → Bone. Zwei gekettete Filter
+      // wirken wie eine kritisch gedämpfte Feder — Bewegungen starten sanft
+      // (Ease-in) statt mit voller Geschwindigkeit, und landen weich.
+      const follow = 1 - Math.exp(-dtc * (Dancer.FOLLOW[name] ?? 14) * 1.8);
       const dummy = this.dummies[name];
 
       // Gesamtrotation in Welt-Achsen: erst Grundhaltung, dann Move obendrauf
@@ -1127,9 +1156,11 @@ export class Dancer {
       Dancer.qTarget
         .copy(m.restLocalQuat)
         .multiply(m.restWorldQuatInv.clone().multiply(Dancer.qWorld).multiply(m.restWorldQuat));
-      m.node.quaternion.slerp(Dancer.qTarget, follow);
+      m.qMid.slerp(Dancer.qTarget, follow);
+      m.node.quaternion.slerp(m.qMid, follow);
       // Selbstheilung: ein einziges NaN würde im Slerp für immer hängen
       // bleiben (unsichtbares Mesh) — dann hart auf das Ziel setzen
+      if (m.qMid.x !== m.qMid.x) m.qMid.copy(Dancer.qTarget);
       if (m.node.quaternion.x !== m.node.quaternion.x) m.node.quaternion.copy(Dancer.qTarget);
 
       if (name === 'hips') {
@@ -1139,7 +1170,9 @@ export class Dancer {
           .applyQuaternion(this.hipParentQuatInv)
           .multiplyScalar(this.hipUnit)
           .add(m.restPos);
-        m.node.position.lerp(Dancer.vOff, follow);
+        m.posMid.lerp(Dancer.vOff, follow);
+        m.node.position.lerp(m.posMid, follow);
+        if (m.posMid.y !== m.posMid.y) m.posMid.copy(Dancer.vOff);
         if (m.node.position.y !== m.node.position.y) m.node.position.copy(Dancer.vOff);
       }
     }
