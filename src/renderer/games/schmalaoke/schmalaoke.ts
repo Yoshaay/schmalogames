@@ -15,7 +15,7 @@ import logoUrl from './assets/logo2.png';
 
 /** Nachrichten vom Operator-Panel */
 interface Cmd {
-  cmd: 'song' | 'space' | 'prev' | 'nextsong' | 'restart' | 'jump' | 'reset' | 'auto' | 'micdev' | 'hello';
+  cmd: 'song' | 'space' | 'prev' | 'nextsong' | 'restart' | 'jump' | 'reset' | 'auto' | 'micdev' | 'hello' | 'bpmreset';
   name?: string;
   content?: string;
   index?: number;
@@ -25,6 +25,11 @@ interface Cmd {
 
 /** Vorlauf: Zeile erscheint N Beats vor ihrem musikalischen Einsatz */
 const PRE_BEATS = 1;
+
+/** Ampel-Logik: Auto-Advance übernimmt erst ab dieser Beat-Konfidenz
+ *  (gelb = lauscht, manuell fahren — grün = gelockt, Auto fährt).
+ *  Die Engine-Konfidenz pendelt bei normalem Material um 0,3–0,6. */
+const LOCK_CONF = 0.3;
 
 /* ---------- Conveyor-Animation (aus player.css, skaliert auf 1080p) ---------- */
 
@@ -95,6 +100,9 @@ export class Schmalaoke implements Game {
   private micDeviceId: string | null = localStorage.getItem('schmalaoke.micDevice');
   private onDeviceChange = () => this.sendInputList();
   private beatCounts: number[] = [];
+  /** Sicherung: ohne einen einzigen <N>-Tag in der LRC bleibt Auto stumm —
+   *  sonst würde der Default (1 Beat/Zeile) die Lyrics durchrattern */
+  private autoCapable = false;
   private currentBeatInLine = 0;
   /** Sperrzeit nach manueller Korrektur (ms, Date.now-Basis) */
   private beatCooldownUntil = 0;
@@ -149,6 +157,12 @@ export class Schmalaoke implements Game {
         break;
       case 'auto':
         this.setAutoMode(!!msg.enabled);
+        break;
+      case 'bpmreset':
+        // Erkennung hat sich verrannt: neu einlocken lassen
+        this.engine.reset();
+        this.currentBeatInLine = 0;
+        this.beatCooldownUntil = 0;
         break;
       case 'micdev':
         this.micDeviceId = msg.id && msg.id !== 'default' ? msg.id : null;
@@ -210,10 +224,20 @@ export class Schmalaoke implements Game {
     this.engine.reset();
   }
 
+  /** Ampel: erst wenn Tempo UND Konfidenz stehen, darf Auto fahren */
+  private isLocked(): boolean {
+    return this.engine.periodMs > 0 && this.engine.conf >= LOCK_CONF;
+  }
+
   /** Beat vom Audio-Grid: Zähler pro Zeile, bei <N> erreicht → weiterblättern */
   private handleDetectedBeat() {
-    this.ctx?.sendToOperator({ kind: 'beat', bpm: this.engine.bpm, conf: this.engine.conf });
+    const locked = this.isLocked();
+    this.ctx?.sendToOperator({ kind: 'beat', bpm: this.engine.bpm, locked });
     if (!this.autoMode || !this.lyricsModeStarted || this.songEndedDisplayed) return;
+    // Song ohne Beat-Tags: Auto greift NICHT ein (nur manuell weiterblättern)
+    if (!this.autoCapable) return;
+    // Ampel gelb (Erkennung noch nicht stabil): manuell fahren, nicht zählen
+    if (!locked) return;
     if (Date.now() < this.beatCooldownUntil) return;
 
     this.currentBeatInLine++;
@@ -249,7 +273,13 @@ export class Schmalaoke implements Game {
       Zustand: zustand,
       Titel: this.title || '—',
       Zeile: this.lyricsModeStarted ? `${Math.min(this.currentLine + 1, this.lines.length)} / ${this.lines.length}` : '—',
-      Auto: this.autoMode ? (this.engine.bpm > 0 ? `AN · ${Math.round(this.engine.bpm)} BPM` : 'AN · lauscht …') : 'aus',
+      Auto: !this.autoMode
+        ? 'aus'
+        : this.lines.length && !this.autoCapable
+          ? 'AN — Song ohne Beat-Tags, nur manuell!'
+          : this.isLocked()
+            ? `AN · ${Math.round(this.engine.bpm)} BPM · fährt`
+            : 'AN · lauscht — manuell fahren',
     };
   }
 
@@ -377,6 +407,7 @@ export class Schmalaoke implements Game {
     this.lines = [...this.parser.lyricsLines];
     this.sections = [...this.parser.sections];
     this.beatCounts = [...this.parser.beatCounts];
+    this.autoCapable = this.parser.beatTagged.some(Boolean);
     this.title = this.parser.metadata.ti || name.replace(/\.lrc$/i, '');
     this.artist = this.parser.metadata.ar || '';
     this.waitingForStart = true;

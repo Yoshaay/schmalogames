@@ -103,7 +103,9 @@ const STYLE = `
     width: 12px; height: 12px; border-radius: 50%; background: #3a3e4c;
     display: inline-block; align-self: center; transition: background 0.05s;
   }
+  /* Ampel: grün = gelockt (Auto fährt), gelb = lauscht (manuell fahren) */
   .ka-beat.on { background: var(--primary); box-shadow: 0 0 10px rgba(148, 192, 28, 0.8); }
+  .ka-beat.warn { background: #f9b233; box-shadow: 0 0 10px rgba(249, 178, 51, 0.8); }
 `;
 
 export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelApi): OperatorPanel {
@@ -141,6 +143,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
           </select>
           <span class="ka-beat" data-id="beatdot"></span>
           <span class="ka-meta" data-id="bpm" style="align-self:center">—</span>
+          <button data-id="bpmreset" title="BPM zurücksetzen — Erkennung lockt neu ein">↺</button>
         </div>
         <div class="ka-head">Sprungmarken <span style="text-transform:none;letter-spacing:0">— Klick oder Ziffer armiert, Leertaste springt</span></div>
         <div class="ka-markers" data-id="markers"></div>
@@ -294,6 +297,11 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     renderAuto();
   };
   micDev.onchange = () => api.send({ cmd: 'micdev', id: micDev.value });
+  q('bpmreset').onclick = () => {
+    api.send({ cmd: 'bpmreset' });
+    bpmEl.textContent = 'lauscht …';
+    beatDot.classList.remove('on', 'warn');
+  };
 
   function renderAuto() {
     autoBtn.textContent = autoOn ? 'Auto: AN' : 'Auto: AUS';
@@ -448,11 +456,16 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
         lyricsEl.querySelector('.ka-lyric.current')?.scrollIntoView({ block: 'nearest' });
       }
       if (msg.kind === 'beat') {
-        const { bpm } = payload as { bpm: number };
-        bpmEl.textContent = bpm > 0 ? `${Math.round(bpm)} BPM` : 'lauscht …';
-        beatDot.classList.add('on');
+        const { bpm, locked } = payload as { bpm: number; locked: boolean };
+        bpmEl.textContent = locked
+          ? `${Math.round(bpm)} BPM · Auto fährt`
+          : bpm > 0
+            ? `${Math.round(bpm)} BPM · lockt ein …`
+            : 'lauscht …';
+        beatDot.classList.remove('on', 'warn');
+        beatDot.classList.add(locked ? 'on' : 'warn');
         clearTimeout(beatDotTimer);
-        beatDotTimer = window.setTimeout(() => beatDot.classList.remove('on'), 120);
+        beatDotTimer = window.setTimeout(() => beatDot.classList.remove('on', 'warn'), 120);
       }
       if (msg.kind === 'inputs') {
         const { devices, selected } = payload as { devices: Array<{ id: string; label: string }>; selected: string };

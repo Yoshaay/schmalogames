@@ -122,9 +122,9 @@ export class LRCParser {
     }
 
     if (untaggedCount === lineCount) {
-      warnings.push('Keine Beat-Tags — Auto-Advance läuft auf Default (1 Beat/Zeile)');
+      warnings.push('Keine Beat-Tags — Auto-Advance bleibt bei diesem Song AUS (nur manuell)');
     } else if (untaggedCount > 0) {
-      warnings.push(`${untaggedCount}/${lineCount} Zeilen ohne Beat-Tag`);
+      warnings.push(`${untaggedCount}/${lineCount} Zeilen ohne Beat-Tag (laufen auf Default 1 Beat)`);
     }
 
     let level: LrcValidation['level'] = 'ok';
