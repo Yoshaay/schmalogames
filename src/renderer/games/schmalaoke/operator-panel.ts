@@ -127,9 +127,12 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
         <div class="ka-row">
           <button data-id="add" class="primary">+ LRC-Dateien</button>
           <button data-id="next" title="Taste N">Nächster Song ⏭</button>
+          <button data-id="save" title="Setlist als JSON-Datei sichern">💾</button>
+          <button data-id="loadlist" title="Setlist aus JSON-Datei laden — ersetzt die aktuelle Liste">📂</button>
         </div>
         <div class="ka-list" data-id="songs"></div>
         <input type="file" accept=".lrc" multiple hidden>
+        <input type="file" accept=".json" data-id="setlistfile" hidden>
       </div>
       <div class="ka-col">
         <div class="ka-head">Presenter</div>
@@ -166,25 +169,56 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
   let activeIndex = -1;
   let presenter: PresenterState | null = null;
 
+  /* ---------- Persistenz: Setlist überlebt Spielwechsel & Neustart ---------- */
+
+  const STORE_KEY = 'schmalaoke.setlist';
+
+  function persist() {
+    try {
+      localStorage.setItem(
+        STORE_KEY,
+        JSON.stringify({ songs: songs.map((s) => ({ name: s.name, content: s.content, status: s.status })) }),
+      );
+    } catch {}
+  }
+
+  /** Song aus LRC-Inhalt bauen (Parse, Metadaten, Validierung) */
+  function songFromContent(name: string, content: string, status: Song['status'] = 'planned'): Song {
+    const p = new LRCParser();
+    const ok = p.parseContent(content);
+    return {
+      name,
+      content,
+      title: p.metadata.ti || name.replace(/\.lrc$/i, ''),
+      artist: p.metadata.ar || '',
+      lines: ok ? [...p.lyricsLines] : [],
+      sections: ok ? [...p.sections] : [],
+      validation: ok ? p.validate() : { level: 'error', warnings: ['Keine Lyrics gefunden'] },
+      status,
+    };
+  }
+
+  // Gespeicherte Setlist wiederherstellen. Lauf-Status wird zurückgesetzt
+  // (das Spiel auf der Wall startet beim Spielwechsel frisch), 'finished'
+  // bleibt sichtbar, damit man sieht, was schon gespielt wurde.
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (raw) {
+      const data = JSON.parse(raw) as { songs?: Array<{ name: string; content: string; status?: string }> };
+      for (const s of data.songs ?? []) {
+        songs.push(songFromContent(s.name, s.content, s.status === 'finished' ? 'finished' : 'planned'));
+      }
+    }
+  } catch {}
+
   /* ---------- Playlist ---------- */
 
   async function addFiles(files: FileList | File[]) {
     for (const file of Array.from(files)) {
       if (!/\.lrc$/i.test(file.name)) continue;
-      const content = await file.text();
-      const p = new LRCParser();
-      const ok = p.parseContent(content);
-      songs.push({
-        name: file.name,
-        content,
-        title: p.metadata.ti || file.name.replace(/\.lrc$/i, ''),
-        artist: p.metadata.ar || '',
-        lines: ok ? [...p.lyricsLines] : [],
-        sections: ok ? [...p.sections] : [],
-        validation: ok ? p.validate() : { level: 'error', warnings: ['Keine Lyrics gefunden'] },
-        status: 'planned',
-      });
+      songs.push(songFromContent(file.name, await file.text()));
     }
+    persist();
     renderSongs();
   }
 
@@ -192,6 +226,58 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
   fileInput.onchange = () => {
     void addFiles(fileInput.files ?? []);
     fileInput.value = '';
+  };
+
+  /* ---------- Setlist als JSON sichern/laden (LRC-Inhalte eingebettet) ---------- */
+
+  const setlistInput = container.querySelector<HTMLInputElement>('[data-id="setlistfile"]')!;
+
+  q('save').onclick = () => {
+    if (!songs.length) {
+      metaEl.textContent = 'Setlist ist leer — nichts zu sichern.';
+      return;
+    }
+    const data = {
+      type: 'schmalaoke-setlist',
+      version: 2,
+      songs: songs.map((s) => ({ name: s.name, content: s.content })),
+    };
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+    a.download = 'schmalaoke-setlist.json';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+  };
+
+  q('loadlist').onclick = () => setlistInput.click();
+  setlistInput.onchange = async () => {
+    const file = setlistInput.files?.[0];
+    setlistInput.value = '';
+    if (!file) return;
+    try {
+      const data = JSON.parse(await file.text()) as {
+        type?: string;
+        songs?: Array<{ name?: string; content?: string; filepath?: string }>;
+      };
+      if (data?.type !== 'schmalaoke-setlist' || !Array.isArray(data.songs)) throw new Error('kein Setlist-Format');
+      if (!data.songs.every((s) => typeof s?.content === 'string')) {
+        // v1 aus der Standalone-App referenziert nur Dateipfade — hier kein fs-Zugriff
+        metaEl.textContent = 'Setlist aus der Standalone-App (nur Dateipfade) — bitte die LRC-Dateien direkt reinziehen.';
+        return;
+      }
+      songs.length = 0;
+      for (const s of data.songs) songs.push(songFromContent(String(s.name ?? 'Song.lrc'), s.content!));
+      activeIndex = -1;
+      presenter = null;
+      api.send({ cmd: 'reset' });
+      persist();
+      renderSongs();
+      renderMarkers();
+      renderLyrics();
+      metaEl.textContent = `Setlist geladen: ${songs.length} Song${songs.length === 1 ? '' : 's'}.`;
+    } catch {
+      metaEl.textContent = 'Keine gültige Setlist-Datei (.json).';
+    }
   };
 
   /* ---------- Drag & Drop: Dateien aus dem Finder in die Liste ---------- */
@@ -223,6 +309,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     if (activeIndex === from) activeIndex = to;
     else if (from < activeIndex && to >= activeIndex) activeIndex--;
     else if (from > activeIndex && to <= activeIndex) activeIndex++;
+    persist();
     renderSongs();
   }
 
@@ -236,6 +323,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     activeIndex = index;
     song.status = 'loaded';
     api.send({ cmd: 'song', name: song.name, content: song.content });
+    persist();
     renderSongs();
     renderMarkers();
     renderLyrics();
@@ -332,6 +420,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     [songs[i], songs[j]] = [songs[j], songs[i]];
     if (activeIndex === i) activeIndex = j;
     else if (activeIndex === j) activeIndex = i;
+    persist();
     renderSongs();
   }
 
@@ -347,6 +436,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     } else if (activeIndex > i) {
       activeIndex--;
     }
+    persist();
     renderSongs();
   }
 
@@ -520,7 +610,10 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
           autoOn = presenter.autoMode;
           renderAuto();
         }
-        if (activeIndex >= 0 && presenter.started) songs[activeIndex].status = 'playing';
+        if (activeIndex >= 0 && presenter.started && songs[activeIndex].status !== 'playing') {
+          songs[activeIndex].status = 'playing';
+          persist();
+        }
         renderSongs();
         renderMarkers();
         renderLyrics();
@@ -558,6 +651,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
       }
       if (msg.kind === 'song-ended') {
         if (activeIndex >= 0) songs[activeIndex].status = 'finished';
+        persist();
         renderSongs();
         // Auto-Next wie im Original
         if (activeIndex < songs.length - 1) loadSong(activeIndex + 1);
