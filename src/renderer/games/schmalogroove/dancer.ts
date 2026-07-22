@@ -428,23 +428,6 @@ const MOVES: Array<{ name: string; fn(b: MoveBones, c: MoveCtx): void }> = [
     },
   },
   {
-    name: 'DOUBLE POINT', // zeigt abwechselnd diagonal nach unten und oben
-    fn(b, c) {
-      const { k, dip } = c;
-      const aim = c.beatCount % 2 === 0 ? 1 : -1; // Beat 1 hoch, Beat 2 runter
-      // die Pose-Trägheit blendet zwischen beiden Zielen weich über
-      b['upper_arm.R'].rotation.z = -(1.25 + 0.85 * aim);
-      b['forearm.R'].rotation.x = -0.3;
-      b['upper_arm.L'].rotation.z = 0.5;
-      b['forearm.L'].rotation.x = -1.4;
-      b.chest.rotation.z = 0.1 * aim * k;
-      b.head.rotation.x = -0.15 * aim * k;
-      b.head.rotation.y = -0.2 * k;
-      b.hips.position.y -= 0.07 * k * dip;
-      bendKnees(b, 0.4 * k * dip);
-    },
-  },
-  {
     name: 'SHIMMY', // Schulter-Schütteln im Doppeltempo, leicht vorgebeugt
     fn(b, c) {
       const { k, p, dip } = c;

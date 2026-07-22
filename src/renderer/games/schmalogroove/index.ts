@@ -20,10 +20,11 @@ export const schmalogrooveEntry: GameEntry = {
   ],
   // Auszeichnungen: Klick = an (mit Konfetti), nochmal Klick = aus.
   // Der Burst zündet unabhängig davon über der Publikumscam-Fläche.
+  // Sync-Debug bewusst NICHT hier (kein Hotkey, kein Button zwischen den
+  // Show-Aktionen) — der Toggle sitzt in der Kopfzeile des Operators
   actions: [
     ...CHEERS.map((cheer, i) => ({ id: `cheer${i}`, label: `🎉 ${cheer}` })),
     { id: 'burst', label: '✨ Speedburst (Publikumscam)' },
-    { id: 'syncdebug', label: '🔧 Sync-Debug (Beat-Blitz) an/aus' },
   ],
   buildOperatorPanel: buildGroovePanel,
   create: () => new Schmalogroove(),

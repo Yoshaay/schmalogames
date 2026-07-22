@@ -98,7 +98,6 @@ export class Schmalogroove implements Game {
 
   /* ---------- Sync-Debug: Blink-Signal auf dem visuellen Beat ---------- */
   private debugSync = false;
-  private syncFlash = 0;
 
   /* ---------- Auszeichnung (Cheer) ---------- */
   /** Gewürfeltes Dreieck-Layout des Backdrops (pro Aktivierung neu) */
@@ -130,7 +129,6 @@ export class Schmalogroove implements Game {
     this.buildScene();
     this.engine.onBeat = () => {
       if (this.engine.beatCount % 8 === 0) this.dancer.nextMove();
-      if (this.debugSync) this.syncFlash = 1;
     };
   }
 
@@ -271,7 +269,6 @@ export class Schmalogroove implements Game {
     this.dance(dt, now / 1000);
 
     this.burst.update(dt);
-    this.syncFlash = Math.max(0, this.syncFlash - dt * 7);
 
     // Auszeichnung aktiv: Konfetti regnet nach, bis die Zeit abläuft
     this.confetti.update(dt);
@@ -342,34 +339,60 @@ export class Schmalogroove implements Game {
   }
 
   /**
-   * Sync-Debug: Blitz exakt auf dem visuellen Beat (gleiche Uhr wie die
-   * Tänzerin). Sync-Offset schieben, bis Blitz und hörbarer Beat
-   * zusammenfallen — dann ist auch der Tanz synchron.
+   * Sync-Debug: komplett phasengetrieben von der visuellen Beat-Uhr der
+   * Tänzerin — Blitz bei Phase 0 und ein umlaufender Punkt als Metronom
+   * (oben = Beat), den man auf den Beat zulaufen sieht. Sync-Offset
+   * schieben, bis der Treffer oben mit dem hörbaren Beat zusammenfällt.
    */
   private renderSyncDebug(g: CanvasRenderingContext2D) {
     const cx = 610;
-    const cy = 160;
+    const cy = 460;
+    const R = 100;
+    const p = Math.min(Math.max(this.engine.beatPhase, 0), 1);
+    const hasGrid = this.engine.periodMs > 0 && this.playing;
+
+    // Groß und unübersehbar — ist ja nur zum Debuggen
+    if (hasGrid) {
+      const flash = Math.max(0, 1 - p / 0.16);
+      if (flash > 0.01) {
+        g.globalAlpha = Math.pow(flash, 0.6) * 0.9;
+        g.fillStyle = '#e71d73';
+        g.beginPath();
+        g.arc(cx, cy, 120 + flash * 300, 0, Math.PI * 2);
+        g.fill();
+        g.globalAlpha = 1;
+      }
+    }
 
     // statischer Ring als Blickanker — kontrastiert auf Weiß UND Livebild
     g.strokeStyle = '#1a1a22';
     g.lineWidth = 12;
     g.beginPath();
-    g.arc(cx, cy, 80, 0, Math.PI * 2);
+    g.arc(cx, cy, R, 0, Math.PI * 2);
     g.stroke();
     g.strokeStyle = '#e71d73';
     g.lineWidth = 6;
     g.beginPath();
-    g.arc(cx, cy, 80, 0, Math.PI * 2);
+    g.arc(cx, cy, R, 0, Math.PI * 2);
     g.stroke();
+    // Beat-Markierung oben
+    g.fillStyle = '#1a1a22';
+    g.fillRect(cx - 5, cy - R - 26, 10, 20);
 
-    // Blitz: knallt auf dem Beat voll auf und klingt schnell ab
-    if (this.syncFlash > 0.01) {
-      g.globalAlpha = Math.pow(this.syncFlash, 0.6);
-      g.fillStyle = '#e71d73';
+    if (hasGrid) {
+      // Metronom: Punkt läuft einmal pro Beat im Uhrzeigersinn um,
+      // Treffer oben = Beat
+      const ang = p * Math.PI * 2 - Math.PI / 2;
+      const dx = cx + Math.cos(ang) * R;
+      const dy = cy + Math.sin(ang) * R;
+      g.fillStyle = '#1a1a22';
       g.beginPath();
-      g.arc(cx, cy, 12 + this.syncFlash * 62, 0, Math.PI * 2);
+      g.arc(dx, dy, 17, 0, Math.PI * 2);
       g.fill();
-      g.globalAlpha = 1;
+      g.fillStyle = '#ffffff';
+      g.beginPath();
+      g.arc(dx, dy, 12, 0, Math.PI * 2);
+      g.fill();
     }
 
     // Referenzwerte zum Ablesen beim Schieben
@@ -378,7 +401,8 @@ export class Schmalogroove implements Game {
     g.textBaseline = 'alphabetic';
     g.lineJoin = 'round';
     const bpm = this.engine.bpm > 0 ? Math.round(this.engine.bpm) : '—';
-    const info = `${bpm} BPM · Offset ${Math.round(this.engine.offsetMs)} ms`;
+    const mode = !hasGrid ? 'WARTE AUF BEAT' : this.engine.manual ? 'TAP' : `AUTO ${Math.round(this.engine.conf * 100)}%`;
+    const info = `${bpm} BPM · Offset ${Math.round(this.engine.offsetMs)} ms · ${mode}`;
     g.strokeStyle = '#1a1a22';
     g.lineWidth = 8;
     g.strokeText(info, cx, cy + 145);

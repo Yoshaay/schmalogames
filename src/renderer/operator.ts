@@ -26,6 +26,8 @@ for (const entry of games) {
 
 $('stop').onclick = () => window.bus.send({ type: 'stop' });
 $('fullscreen').onclick = () => window.bus.send({ type: 'wall-fullscreen' });
+// Debug-Werkzeug in der Kopfzeile — bewusst kein Hotkey, weit weg von den Show-Buttons
+$('syncdebug').onclick = () => window.bus.send({ type: 'action', id: 'syncdebug' });
 
 // ---------- Live-Vorschau (WebRTC vom Wall-Fenster) ----------
 let previewPC: RTCPeerConnection | null = null;
