@@ -14,14 +14,10 @@ for (const entry of games) {
   btn.className = 'game-btn';
   btn.dataset.id = entry.id;
   btn.textContent = `▶ ${entry.title}`;
+  // Beschreibung nur als Tooltip — die Leiste bleibt kompakt
+  if (entry.description) btn.title = entry.description;
   btn.onclick = () => window.bus.send({ type: 'start', gameId: entry.id });
   gamesEl.appendChild(btn);
-  if (entry.description) {
-    const desc = document.createElement('div');
-    desc.className = 'game-desc';
-    desc.textContent = entry.description;
-    gamesEl.appendChild(desc);
-  }
 }
 
 $('stop').onclick = () => window.bus.send({ type: 'stop' });
@@ -78,6 +74,21 @@ function buildPanels(entry: GameEntry | null) {
   gamePanel = null;
   gameUiEl.innerHTML = '';
   gamePanelEl.hidden = true;
+
+  // Panel-Platzierung: Standard = linke Spalte unter der Vorschau,
+  // 'sidebar' = eigene hochkante Spalte ganz links (Rundown-Stil)
+  const sidebarCol = $('sidebar-col') as HTMLElement;
+  const mainEl = document.querySelector('main')!;
+  const useSidebar = !!entry?.buildOperatorPanel && entry.panelLayout === 'sidebar';
+  if (useSidebar) {
+    sidebarCol.appendChild(gamePanelEl);
+  } else {
+    // zurück an die Standardposition: vor dem Status-Panel
+    const statusPanel = $('status').closest('.panel')!;
+    statusPanel.parentElement!.insertBefore(gamePanelEl, statusPanel);
+  }
+  sidebarCol.hidden = !useSidebar;
+  mainEl.classList.toggle('with-sidebar', useSidebar);
 
   if (entry?.buildOperatorPanel) {
     gamePanelEl.hidden = false;
@@ -259,6 +270,10 @@ window.bus.onMessage((raw) => {
     fireHotkey((raw as { key: number }).key);
     return;
   }
+  if (anyMsg.type === 'gamekey') {
+    gamePanel?.onKey?.((raw as { code: string }).code);
+    return;
+  }
   if (anyMsg.type === 'wall-fullscreen-state') {
     const btn = $('fullscreen') as HTMLButtonElement;
     btn.textContent = anyMsg.fullscreen ? 'Vollbild verlassen ⛶' : 'Wall-Vollbild ⛶';
@@ -322,7 +337,12 @@ function escapeHtml(s: string): string {
 // (before-input-event) und schickt sie als 'hotkey'-Nachricht hierher.
 function fireHotkey(n: number) {
   const action = entryById(activeGameId)?.actions?.[n - 1];
-  if (!action) return;
+  if (!action) {
+    // Keine Aktion auf dieser Ziffer: ans Spiel-Panel durchreichen
+    // (Schmalaoke nutzt 1–9 für Sprungmarken)
+    gamePanel?.onKey?.(`Digit${n}`);
+    return;
+  }
   window.bus.send({ type: 'action', id: action.id });
   // Button aufblitzen lassen, damit man sieht, was gefeuert hat
   const btn = document.querySelector<HTMLButtonElement>(`.btn-action[data-action-index="${n - 1}"]`);

@@ -25,6 +25,8 @@ export interface OperatorPanelApi {
 export interface OperatorPanel {
   /** Ereignis vom Spiel (GameContext.sendToOperator) */
   onEvent?(payload: unknown): void;
+  /** Spiel-Taste aus dem WALL-Fenster (Main relayt z.B. Space/Pfeile) */
+  onKey?(code: string): void;
   /** Aufräumen beim Spielwechsel (Listener entfernen etc.) */
   dispose?(): void;
 }
@@ -75,5 +77,8 @@ export interface GameEntry {
   actions?: { id: string; label: string }[];
   /** Eigenes Operator-UI (Transport, Anzeigen, …) — läuft nur im Operator-Fenster */
   buildOperatorPanel?(container: HTMLElement, api: OperatorPanelApi): OperatorPanel;
+  /** 'sidebar': Panel als hochkante Spalte links neben der Vorschau
+   *  (statt unter ihr) — z.B. für Setlisten im Rundown-Stil */
+  panelLayout?: 'sidebar';
   create(): Game;
 }

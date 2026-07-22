@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Game, GameContext, SettingValues, VIEW_W, VIEW_H } from '../../core/game';
 import { Confetti } from '../../core/confetti';
-import { BeatEngine } from './beat';
+import { BeatEngine } from '../../core/beat';
 import { Dancer } from './dancer';
 import { MIXAMO_CLIPS } from './mixamo-clips';
 import { SpeedBurst } from './burst';

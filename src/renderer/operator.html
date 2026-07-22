@@ -49,6 +49,11 @@
         box-sizing: border-box;
       }
 
+      /* hidden-Attribut gewinnt immer — auch gegen display-Regeln wie .col */
+      [hidden] {
+        display: none !important;
+      }
+
       html,
       body {
         height: 100%;
@@ -137,6 +142,25 @@
         padding: 16px 20px 20px;
         min-height: 0;
       }
+      /* Spiel-Panel als hochkante Sidebar links (panelLayout: 'sidebar') */
+      main.with-sidebar {
+        grid-template-columns: 430px 1fr 360px;
+      }
+      #sidebar-col {
+        overflow-y: auto;
+        padding-right: 4px;
+      }
+      #sidebar-col > .panel {
+        flex-shrink: 0;
+        min-height: calc(100% - 2px);
+      }
+      #sidebar-col::-webkit-scrollbar {
+        width: 8px;
+      }
+      #sidebar-col::-webkit-scrollbar-thumb {
+        background: #2a2e37;
+        border-radius: 4px;
+      }
       .col {
         display: flex;
         flex-direction: column;
@@ -187,16 +211,49 @@
         background: var(--panel-edge);
       }
 
-      /* ---------- Vorschau ---------- */
+      /* ---------- Spiele-Tab-Leiste (immer sichtbar) ---------- */
+      #gamebar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 20px 0;
+      }
+      #gamebar .head {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--ink-dim);
+        margin-right: 6px;
+      }
+      #games {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      /* ---------- Vorschau: echtes 16:9, füllt den verbleibenden Platz ----------
+         Das Panel nimmt die Resthöhe der Spalte; der Frame skaliert sich als
+         16:9-Rechteck in den verfügbaren Raum (Höhe oder Breite limitiert).
+         So passt IMMER alles ohne Scrollen auf den Schirm. */
       .preview-panel {
-        flex: 1;
+        flex: 1 1 auto;
+        min-height: 0;
         display: flex;
         flex-direction: column;
-        min-height: 0;
       }
-      .preview-frame {
+      .preview-wrap {
         flex: 1;
         min-height: 0;
+        container-type: size;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .preview-frame {
+        /* exakt 16:9, eingepasst in Breite UND Höhe des verfügbaren Raums */
+        width: min(100%, calc(100cqh * 16 / 9));
+        aspect-ratio: 16 / 9;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -219,29 +276,29 @@
         color: #3a3e4c;
       }
 
-      /* ---------- Status ---------- */
+      /* ---------- Status (kompakt — alles muss auf den Schirm) ---------- */
       #status {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-        gap: 10px;
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        gap: 8px;
       }
       .stat {
         background: #101218;
         border: 1px solid var(--panel-edge);
         border-radius: 4px;
-        padding: 10px 12px;
+        padding: 7px 10px;
       }
       .stat .k {
         font-family: var(--font-mono);
-        font-size: 10px;
+        font-size: 9px;
         letter-spacing: 0.16em;
         text-transform: uppercase;
         color: var(--ink-dim);
-        margin-bottom: 4px;
+        margin-bottom: 3px;
       }
       .stat .v {
         font-family: var(--font-mono);
-        font-size: 22px;
+        font-size: 17px;
         font-weight: 600;
         color: var(--primary);
         font-variant-numeric: tabular-nums;
@@ -280,28 +337,17 @@
       }
 
       .game-btn {
-        display: block;
-        width: 100%;
-        text-align: left;
-        font-size: 15px;
-        padding: 12px 14px;
-        margin-bottom: 8px;
+        font-size: 14px;
+        padding: 9px 16px;
         border-left: 3px solid transparent;
       }
       .game-btn.active {
         border-left-color: var(--primary);
-        background: linear-gradient(90deg, rgba(148, 192, 28, 0.14), transparent 70%);
+        background: linear-gradient(90deg, rgba(148, 192, 28, 0.14), transparent 85%);
         color: var(--primary);
-      }
-      .game-desc {
-        font-size: 12px;
-        color: var(--ink-dim);
-        margin: -4px 0 10px 3px;
-        line-height: 1.4;
       }
 
       .btn-stop {
-        width: 100%;
         color: #f27bab;
         border-color: rgba(231, 29, 115, 0.35);
       }
@@ -517,13 +563,23 @@
       <button id="fullscreen">Wall-Vollbild ⛶</button>
     </header>
 
+    <nav id="gamebar">
+      <span class="head">Spiele</span>
+      <div id="games"></div>
+      <div class="spacer"></div>
+      <button class="btn-stop" id="stop">■ Stop — Leerlaufbild</button>
+    </nav>
+
     <main>
+      <div class="col" id="sidebar-col" hidden></div>
       <div class="col">
         <div class="panel preview-panel">
           <h2>Vorschau — Videowall</h2>
-          <div class="preview-frame">
-            <span class="no-signal">KEIN SIGNAL</span>
-            <video id="preview" autoplay muted playsinline></video>
+          <div class="preview-wrap">
+            <div class="preview-frame">
+              <span class="no-signal">KEIN SIGNAL</span>
+              <video id="preview" autoplay muted playsinline></video>
+            </div>
           </div>
         </div>
         <div class="panel" id="game-panel" hidden>
@@ -537,11 +593,6 @@
       </div>
 
       <div class="col col-side">
-        <div class="panel">
-          <h2>Spiele</h2>
-          <div id="games"></div>
-          <button class="btn-stop" id="stop">■ Stop — Leerlaufbild</button>
-        </div>
         <div class="panel" id="live-panel" hidden>
           <h2>Live</h2>
           <div id="live"></div>
