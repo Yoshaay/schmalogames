@@ -540,6 +540,9 @@ export class Schmalaoke implements Game {
   private restartSong() {
     if (!this.lyricsModeStarted || this.songEndedDisplayed) return;
     this.currentLine = 0;
+    // Beat-Zähler wie bei Sprung/Korrektur neu ansetzen
+    this.currentBeatInLine = PRE_BEATS;
+    this.beatCooldownUntil = Date.now() + 400;
     this.showHard();
     this.sendPresenter();
   }

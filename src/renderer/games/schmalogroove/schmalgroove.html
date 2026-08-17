@@ -616,9 +616,10 @@ function alignPhase(nowMs, det, t0){
   }
   const target = nowMs - bestOff + T;      // nächster Beat laut Onset-Kurve
   if (!nextBeatAt){ nextBeatAt = target; return; }
-  // PLL: Phasenfehler in ±T/2 falten und nur zu 40 % korrigieren
-  let err = ((target - nextBeatAt) % T + 1.5 * T) % T;
-  if (err > T / 2) err -= T;
+  // PLL: Phasenfehler in ±T/2 falten und nur zu 40 % korrigieren.
+  // (+1,5T dann −0,5T — das Pärchen muss zusammenpassen, sonst landet
+  // der Fixpunkt der Regelung auf dem OFF-Beat!)
+  const err = ((target - nextBeatAt) % T + 1.5 * T) % T - 0.5 * T;
   nextBeatAt += err * 0.4;
 }
 

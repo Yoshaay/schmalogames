@@ -217,6 +217,10 @@ export function buildGroovePanel(container: HTMLElement, api: OperatorPanelApi):
   api.send({ cmd: 'hello' });
 
   return {
+    // Tasten aus dem WALL-Fenster (Main-Prozess relayt sie hierher)
+    onKey(code: string) {
+      if (code === 'KeyT') tap();
+    },
     onEvent(payload: unknown) {
       const msg = payload as { kind?: string };
       if (msg.kind === 'tick') onTick(payload as Tick);

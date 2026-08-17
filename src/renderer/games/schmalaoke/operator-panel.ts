@@ -542,10 +542,13 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     });
   }
 
+  /** Titel/Artist kommen aus LRC-Metadaten — vor innerHTML escapen */
+  const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
   function updateMeta() {
     if (!presenter || activeIndex < 0) return;
     const parts: string[] = [];
-    parts.push(presenter.artist ? `${presenter.artist} – ${presenter.title}` : presenter.title);
+    parts.push(esc(presenter.artist ? `${presenter.artist} – ${presenter.title}` : presenter.title));
     if (presenter.started && !presenter.ended && presenter.remaining >= 0) {
       const cls = presenter.remaining <= 5 ? 'rest-crit' : presenter.remaining <= 10 ? 'rest-warn' : '';
       parts.push(`<span class="${cls}">${presenter.remaining} Zeilen übrig</span>`);

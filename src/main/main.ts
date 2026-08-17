@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import * as path from 'node:path';
 
 let wall: BrowserWindow | null = null;
@@ -50,11 +50,17 @@ function createWindows() {
   wall.on('leave-full-screen', sendFullscreenState);
   operator.webContents.on('did-finish-load', sendFullscreenState);
 
-  // Hotkeys 1–9 (Spiel-Aktionen) funktionieren in beiden Fenstern —
-  // egal, welches gerade den Fokus hat. Der Operator mappt sie auf Aktionen.
+  // Hotkeys 1–9 (Spiel-Aktionen) und F11 (Wall-Vollbild) funktionieren in
+  // beiden Fenstern — egal, welches gerade den Fokus hat. Bewusst per
+  // before-input-event statt globalShortcut: der würde SYSTEMWEIT feuern,
+  // auch wenn eine ganz andere App den Fokus hat.
   for (const win of [wall, operator]) {
     win.webContents.on('before-input-event', (_event, input) => {
       if (input.type !== 'keyDown' || input.isAutoRepeat) return;
+      if (input.key === 'F11') {
+        wall?.setFullScreen(!wall.isFullScreen());
+        return;
+      }
       if (input.control || input.meta || input.alt) return;
       if (!/^[1-9]$/.test(input.key)) return;
       if (operator && !operator.isDestroyed()) {
@@ -63,10 +69,11 @@ function createWindows() {
     });
   }
 
-  // Spiel-Tasten (z.B. Schmalaoke: Space/Pfeile/N/Home) auch bei fokussierter
-  // WALL abfangen und ans Operator-Panel weiterreichen. Nur von der Wall —
-  // im Operator übernimmt der lokale Handler (kennt Eingabefelder & Buttons).
-  const GAME_KEYS = new Set(['Space', 'ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'KeyN', 'Home']);
+  // Spiel-Tasten (z.B. Schmalaoke: Space/Pfeile/N/Home, Groove: T) auch bei
+  // fokussierter WALL abfangen und ans Operator-Panel weiterreichen. Nur von
+  // der Wall — im Operator übernimmt der lokale Handler (kennt Eingabefelder
+  // & Buttons).
+  const GAME_KEYS = new Set(['Space', 'ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'KeyN', 'KeyT', 'Home']);
   wall.webContents.on('before-input-event', (_event, input) => {
     if (input.type !== 'keyDown' || input.isAutoRepeat) return;
     if (input.control || input.meta || input.alt) return;
@@ -96,11 +103,6 @@ ipcMain.on('msg', (event, msg: { type?: string }) => {
 
 app.whenReady().then(() => {
   createWindows();
-
-  // F11: Wall-Vollbild togglen
-  globalShortcut.register('F11', () => {
-    if (wall) wall.setFullScreen(!wall.isFullScreen());
-  });
 });
 
 app.on('window-all-closed', () => {

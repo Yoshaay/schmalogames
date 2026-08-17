@@ -300,9 +300,10 @@ export class BeatEngine {
       this.nextBeatAt = target;
       return;
     }
-    // PLL: Phasenfehler in ±T/2 falten und nur zu 40 % korrigieren
-    let err = (((target - this.nextBeatAt) % T) + 1.5 * T) % T;
-    if (err > T / 2) err -= T;
+    // PLL: Phasenfehler in ±T/2 falten und nur zu 40 % korrigieren.
+    // (+1,5T dann −0,5T — das Pärchen muss zusammenpassen, sonst landet
+    // der Fixpunkt der Regelung auf dem OFF-Beat!)
+    const err = ((((target - this.nextBeatAt) % T) + 1.5 * T) % T) - 0.5 * T;
     this.nextBeatAt += err * 0.4;
   }
 }

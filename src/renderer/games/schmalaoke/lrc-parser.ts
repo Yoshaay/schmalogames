@@ -49,8 +49,10 @@ export class LRCParser {
       // Lyrics mit Zeitstempel (z.B. [01:23.45]<4>Text oder [01:23.45]Text)
       const lyricsMatch = line.match(/^\[(\d+):(\d+)\.(\d+)\](.*)$/);
       if (lyricsMatch) {
-        const [, minutes, seconds, centiseconds, rest] = lyricsMatch;
-        const totalMs = (parseInt(minutes) * 60 + parseInt(seconds)) * 1000 + parseInt(centiseconds) * 10;
+        const [, minutes, seconds, frac, rest] = lyricsMatch;
+        // Nachkommateil nach Stellenzahl skalieren: .4 = 400 ms, .45 = 450 ms, .456 = 456 ms
+        const fracMs = Math.round(parseInt(frac, 10) * Math.pow(10, 3 - frac.length));
+        const totalMs = (parseInt(minutes) * 60 + parseInt(seconds)) * 1000 + fracMs;
         this.timestamps.push(totalMs);
 
         // Führende Tags abknabbern — in beliebiger Reihenfolge:

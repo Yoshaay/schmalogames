@@ -654,6 +654,8 @@ export class Schmalogroove implements Game {
 
   private async startMic() {
     this.ensureCtx();
+    // Track-Position merken — nach „Mikro aus“ setzt Play dort wieder an
+    if (this.playing && !this.usingMic) this.pauseOffset = this.actx!.currentTime - this.startedAt;
     this.stopSource();
     this.engine.reset();
     try {
