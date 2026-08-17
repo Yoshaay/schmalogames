@@ -16,7 +16,10 @@ function createWindows() {
     useContentSize: true,
     backgroundColor: '#000000',
     autoHideMenuBar: true,
-    webPreferences: { contextIsolation: true, nodeIntegration: false, preload },
+    // backgroundThrottling: false — SHOW-KRITISCH: sonst friert Chromium den
+    // rAF-Loop (und damit das Spiel + die Vorschau) ein, sobald das Fenster
+    // komplett verdeckt oder minimiert ist
+    webPreferences: { contextIsolation: true, nodeIntegration: false, preload, backgroundThrottling: false },
   });
   // Beim manuellen Resizen 16:9 halten — im Fenstermodus keine schwarzen Balken
   wall.setAspectRatio(16 / 9);
@@ -28,7 +31,7 @@ function createWindows() {
     height: 800,
     backgroundColor: '#0e0f13',
     autoHideMenuBar: true,
-    webPreferences: { contextIsolation: true, nodeIntegration: false, preload },
+    webPreferences: { contextIsolation: true, nodeIntegration: false, preload, backgroundThrottling: false },
   });
   operator.loadFile(path.join(rendererDir, 'operator.html'));
 

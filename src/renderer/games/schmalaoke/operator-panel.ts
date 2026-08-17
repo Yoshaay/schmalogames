@@ -33,10 +33,13 @@ interface PresenterState {
 }
 
 const STYLE = `
-  /* Hochkant-Layout (Sidebar links, wie das Original-Rundown): alles untereinander */
-  .ka-cols { display: flex; flex-direction: column; gap: 16px; }
-  .ka-col { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
-  .ka-markers { display: flex; flex-wrap: wrap; gap: 6px; }
+  /* Aufgeräumt wie das Original-Rundown: links die Setlist mit klaren,
+     vollbreiten Buttons darunter, rechts der Presenter mit den Lyrics.
+     Unten EINE Statuszeile statt verstreuter Hinweistexte. */
+  .ka-root { display: flex; flex-direction: column; gap: 10px; height: 100%; }
+  .ka-cols { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 16px; }
+  .ka-col { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+  .ka-markers { display: flex; flex-wrap: wrap; gap: 6px; max-height: 96px; overflow-y: auto; flex-shrink: 0; }
   .ka-marker {
     font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em;
     padding: 5px 10px; border: 1px solid var(--panel-edge); border-radius: 4px;
@@ -52,17 +55,27 @@ const STYLE = `
   .ka-marker.armed .key { color: #ffffff; border-color: rgba(231, 29, 115, 0.6); }
   .ka-head {
     font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.18em;
-    text-transform: uppercase; color: var(--ink-dim);
+    text-transform: uppercase; color: var(--ink-dim); margin-top: 6px;
   }
-  .ka-row { display: flex; gap: 6px; flex-wrap: wrap; }
-  .ka-row button { padding: 7px 10px; font-size: 12px; }
-  .ka-row button.primary { color: var(--primary); border-color: rgba(148, 192, 28, 0.4); font-weight: 600; }
+  .ka-col > .ka-head:first-child { margin-top: 0; }
+
+  /* Eine klare Primäraktion (gefüllt), alles andere ruhig und vollbreit */
+  .ka-root button { padding: 8px 10px; font-size: 12px; }
+  .ka-btn-primary {
+    display: block; width: 100%; font-weight: 700; text-align: center;
+    background: var(--primary); border-color: var(--primary-deep); color: #101403;
+  }
+  .ka-btn-primary:hover { background: var(--primary-bright); border-color: var(--primary); }
+  .ka-btn-wide { display: block; width: 100%; text-align: center; }
+  .ka-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .ka-root button.armed { color: var(--live); border-color: rgba(231, 29, 115, 0.5); }
+  .ka-row { display: flex; gap: 6px; align-items: center; }
   .ka-list, .ka-lyrics {
     background: #101218; border: 1px solid var(--panel-edge); border-radius: 4px;
     overflow-y: auto;
   }
-  .ka-list { max-height: 24vh; min-height: 90px; }
-  .ka-lyrics { max-height: 38vh; min-height: 160px; }
+  .ka-list { flex: 1; min-height: 90px; }
+  .ka-lyrics { flex: 1; min-height: 160px; }
   .ka-song {
     display: flex; align-items: center; gap: 8px; padding: 7px 10px;
     border-bottom: 1px solid #1a1d26; cursor: pointer; font-size: 13px;
@@ -80,7 +93,10 @@ const STYLE = `
   .dot-finished { background: #2699d6; }
   .ka-song .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ka-song .warn { font-size: 11px; }
-  .ka-song .ops { display: flex; gap: 2px; }
+  /* Sortier-/Lösch-Buttons erst bei Hover — der Name bekommt die Breite
+     (Umsortieren geht ohnehin auch per Drag & Drop) */
+  .ka-song .ops { display: none; gap: 2px; }
+  .ka-song:hover .ops { display: flex; }
   .ka-song .ops button { padding: 2px 7px; font-size: 11px; }
   .ka-lyric {
     padding: 4px 10px; font-size: 12px; color: var(--ink-dim);
@@ -95,21 +111,40 @@ const STYLE = `
     color: var(--blue); margin-right: 8px; text-transform: uppercase;
   }
   .ka-meta { font-family: var(--font-mono); font-size: 11px; color: var(--ink-dim); }
-  .ka-meta .rest-warn { color: #f9b233; }
-  .ka-meta .rest-crit { color: var(--live); }
   .ka-row select {
-    font-family: var(--font-mono); font-size: 11px; color: var(--ink);
+    flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 11px; color: var(--ink);
     background: #1d2029; border: 1px solid var(--panel-edge); border-radius: 4px;
-    padding: 7px 8px; max-width: 190px;
+    padding: 7px 8px;
   }
-  .ka-row button.armed { color: var(--live); border-color: rgba(231, 29, 115, 0.5); }
   .ka-beat {
     width: 12px; height: 12px; border-radius: 50%; background: #3a3e4c;
-    display: inline-block; align-self: center; transition: background 0.05s;
+    display: inline-block; vertical-align: -1px; transition: background 0.05s;
   }
+  .ka-btn-wide .ka-beat { margin-right: 8px; }
   /* Ampel: grün = gelockt (Auto fährt), gelb = lauscht (manuell fahren) */
   .ka-beat.on { background: var(--primary); box-shadow: 0 0 10px rgba(148, 192, 28, 0.8); }
   .ka-beat.warn { background: #f9b233; box-shadow: 0 0 10px rgba(249, 178, 51, 0.8); }
+
+  /* Leere Setlist: Drop-Hinweis mittig, wie im Original */
+  .ka-empty {
+    height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 6px; padding: 16px; text-align: center; color: var(--ink-dim); font-size: 12px;
+  }
+  .ka-empty b { color: var(--ink); font-size: 13px; font-weight: 600; }
+
+  /* Statuszeile unten: Zustand links, Tastatur-Hinweise rechts */
+  .ka-status {
+    border-top: 1px solid var(--panel-edge); padding-top: 8px;
+    display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+    font-family: var(--font-mono); font-size: 11px; color: var(--ink-dim);
+  }
+  .ka-status .rest-warn { color: #f9b233; }
+  .ka-status .rest-crit { color: var(--live); }
+  .ka-keys { white-space: nowrap; flex-shrink: 0; }
+  .ka-keys kbd {
+    font-family: var(--font-mono); font-size: 10px; border: 1px solid var(--panel-edge);
+    border-radius: 3px; padding: 1px 5px;
+  }
 `;
 
 export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelApi): OperatorPanel {
@@ -121,40 +156,42 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
   }
 
   container.innerHTML = `
-    <div class="ka-cols">
-      <div class="ka-col">
-        <div class="ka-head">Setlist</div>
-        <div class="ka-row">
-          <button data-id="add" class="primary">+ LRC-Dateien</button>
-          <button data-id="next" title="Taste N">Nächster Song ⏭</button>
-          <button data-id="save" title="Setlist als JSON-Datei sichern">💾</button>
-          <button data-id="loadlist" title="Setlist aus JSON-Datei laden — ersetzt die aktuelle Liste">📂</button>
+    <div class="ka-root">
+      <div class="ka-cols">
+        <div class="ka-col">
+          <div class="ka-head">Setlist</div>
+          <div class="ka-list" data-id="songs"></div>
+          <button data-id="add" class="ka-btn-primary">+ Songs hinzufügen</button>
+          <div class="ka-grid2">
+            <button data-id="save" title="Setlist als JSON-Datei sichern">💾 Speichern</button>
+            <button data-id="loadlist" title="Setlist aus JSON-Datei laden — ersetzt die aktuelle Liste">📂 Laden</button>
+          </div>
+          <div class="ka-head">Wiedergabe</div>
+          <div class="ka-grid2">
+            <button data-id="restart" title="Song von vorn — Taste Home">↺ Neustart</button>
+            <button data-id="next" title="Taste N">⏭ Nächster Song</button>
+          </div>
+          <div class="ka-head" title="Beats zählen die Zeilen weiter — braucht &lt;N&gt;-Tags in der LRC">Auto-Advance · Beat-Sync</div>
+          <button data-id="auto" class="ka-btn-wide"><span class="ka-beat" data-id="beatdot"></span><span data-id="autolabel">Auto-Advance</span></button>
+          <div class="ka-row">
+            <select data-id="micdev" title="Audio-Eingang für die Beat-Erkennung">
+              <option value="default">Standard-Eingang</option>
+            </select>
+            <span class="ka-meta" data-id="bpm">—</span>
+            <button data-id="bpmreset" title="BPM zurücksetzen — Erkennung lockt neu ein">↺</button>
+          </div>
+          <input type="file" accept=".lrc" multiple hidden>
+          <input type="file" accept=".json" data-id="setlistfile" hidden>
         </div>
-        <div class="ka-list" data-id="songs"></div>
-        <input type="file" accept=".lrc" multiple hidden>
-        <input type="file" accept=".json" data-id="setlistfile" hidden>
+        <div class="ka-col">
+          <div class="ka-head" title="Klick oder Ziffer armiert — Leertaste löst den Sprung aus">Sprungmarken</div>
+          <div class="ka-markers" data-id="markers"></div>
+          <div class="ka-lyrics" data-id="lyrics"></div>
+        </div>
       </div>
-      <div class="ka-col">
-        <div class="ka-head">Presenter</div>
-        <div class="ka-meta" data-id="meta">Kein Song geladen.</div>
-        <div class="ka-row">
-          <button data-id="space" class="primary" title="Leertaste">▶ Start / Weiter</button>
-          <button data-id="prev" title="Pfeil links">⏴ Zurück</button>
-          <button data-id="restart" title="Home">↺ Neustart</button>
-        </div>
-        <div class="ka-head">Auto-Advance <span style="text-transform:none;letter-spacing:0">— Beats zählen Zeilen weiter (&lt;N&gt;-Tags)</span></div>
-        <div class="ka-row">
-          <button data-id="auto">Auto: AUS</button>
-          <select data-id="micdev" title="Audio-Eingang für die Beat-Erkennung">
-            <option value="default">Standard-Eingang</option>
-          </select>
-          <span class="ka-beat" data-id="beatdot"></span>
-          <span class="ka-meta" data-id="bpm" style="align-self:center">—</span>
-          <button data-id="bpmreset" title="BPM zurücksetzen — Erkennung lockt neu ein">↺</button>
-        </div>
-        <div class="ka-head">Sprungmarken <span style="text-transform:none;letter-spacing:0">— Klick oder Ziffer armiert, Leertaste springt</span></div>
-        <div class="ka-markers" data-id="markers"></div>
-        <div class="ka-lyrics" data-id="lyrics"></div>
+      <div class="ka-status">
+        <span data-id="meta">Kein Song geladen.</span>
+        <span class="ka-keys"><kbd>Leertaste</kbd> weiter · <kbd>←</kbd> zurück · <kbd>Home</kbd> Neustart · <kbd>1–9</kbd> Sprungmarke · <kbd>N</kbd> nächster Song</span>
       </div>
     </div>
   `;
@@ -168,19 +205,6 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
   const songs: Song[] = [];
   let activeIndex = -1;
   let presenter: PresenterState | null = null;
-
-  /* ---------- Persistenz: Setlist überlebt Spielwechsel & Neustart ---------- */
-
-  const STORE_KEY = 'schmalaoke.setlist';
-
-  function persist() {
-    try {
-      localStorage.setItem(
-        STORE_KEY,
-        JSON.stringify({ songs: songs.map((s) => ({ name: s.name, content: s.content, status: s.status })) }),
-      );
-    } catch {}
-  }
 
   /** Song aus LRC-Inhalt bauen (Parse, Metadaten, Validierung) */
   function songFromContent(name: string, content: string, status: Song['status'] = 'planned'): Song {
@@ -198,18 +222,9 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     };
   }
 
-  // Gespeicherte Setlist wiederherstellen. Lauf-Status wird zurückgesetzt
-  // (das Spiel auf der Wall startet beim Spielwechsel frisch), 'finished'
-  // bleibt sichtbar, damit man sieht, was schon gespielt wurde.
-  try {
-    const raw = localStorage.getItem(STORE_KEY);
-    if (raw) {
-      const data = JSON.parse(raw) as { songs?: Array<{ name: string; content: string; status?: string }> };
-      for (const s of data.songs ?? []) {
-        songs.push(songFromContent(s.name, s.content, s.status === 'finished' ? 'finished' : 'planned'));
-      }
-    }
-  } catch {}
+  // Keine stille Persistenz: das Panel startet leer. Setlists werden
+  // ausschließlich explizit als JSON gesichert (💾) und geladen (📂).
+  localStorage.removeItem('schmalaoke.setlist'); // Altlast früherer Versionen
 
   /* ---------- Playlist ---------- */
 
@@ -218,7 +233,6 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
       if (!/\.lrc$/i.test(file.name)) continue;
       songs.push(songFromContent(file.name, await file.text()));
     }
-    persist();
     renderSongs();
   }
 
@@ -270,7 +284,6 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
       activeIndex = -1;
       presenter = null;
       api.send({ cmd: 'reset' });
-      persist();
       renderSongs();
       renderMarkers();
       renderLyrics();
@@ -309,7 +322,6 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     if (activeIndex === from) activeIndex = to;
     else if (from < activeIndex && to >= activeIndex) activeIndex--;
     else if (from > activeIndex && to <= activeIndex) activeIndex++;
-    persist();
     renderSongs();
   }
 
@@ -323,7 +335,6 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     activeIndex = index;
     song.status = 'loaded';
     api.send({ cmd: 'song', name: song.name, content: song.content });
-    persist();
     renderSongs();
     renderMarkers();
     renderLyrics();
@@ -341,7 +352,8 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
   function renderSongs() {
     songsEl.innerHTML = '';
     if (!songs.length) {
-      songsEl.innerHTML = '<div class="ka-lyric">Noch keine Songs — „+ LRC-Dateien“.</div>';
+      songsEl.innerHTML =
+        '<div class="ka-empty"><b>Keine Songs in der Setlist</b>LRC-Dateien hierhin ziehen oder „+ Songs hinzufügen“</div>';
       return;
     }
     songs.forEach((song, i) => {
@@ -420,7 +432,6 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     [songs[i], songs[j]] = [songs[j], songs[i]];
     if (activeIndex === i) activeIndex = j;
     else if (activeIndex === j) activeIndex = i;
-    persist();
     renderSongs();
   }
 
@@ -436,14 +447,9 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     } else if (activeIndex > i) {
       activeIndex--;
     }
-    persist();
     renderSongs();
   }
 
-  /* ---------- Presenter ---------- */
-
-  q('space').onclick = () => api.send({ cmd: 'space' });
-  q('prev').onclick = () => api.send({ cmd: 'prev' });
   q('restart').onclick = () => api.send({ cmd: 'restart' });
 
   /* ---------- Auto-Advance ---------- */
@@ -467,11 +473,11 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
   };
 
   function renderAuto() {
-    autoBtn.textContent = autoOn ? 'Auto: AN' : 'Auto: AUS';
+    q('autolabel').textContent = autoOn ? 'Auto-Advance: AN' : 'Auto-Advance';
     autoBtn.classList.toggle('armed', autoOn);
     if (!autoOn) {
       bpmEl.textContent = '—';
-      beatDot.classList.remove('on');
+      beatDot.classList.remove('on', 'warn');
     }
   }
 
@@ -542,19 +548,17 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     });
   }
 
-  /** Titel/Artist kommen aus LRC-Metadaten — vor innerHTML escapen */
-  const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-
+  /** Statuszeile unten: nur Zustand — Titel steht in Setlist & Status-Panel */
   function updateMeta() {
     if (!presenter || activeIndex < 0) return;
     const parts: string[] = [];
-    parts.push(esc(presenter.artist ? `${presenter.artist} – ${presenter.title}` : presenter.title));
-    if (presenter.started && !presenter.ended && presenter.remaining >= 0) {
+    if (presenter.ended) parts.push('Song beendet');
+    else if (!presenter.started) parts.push('Bereit — Leertaste startet');
+    else if (presenter.remaining >= 0) {
       const cls = presenter.remaining <= 5 ? 'rest-crit' : presenter.remaining <= 10 ? 'rest-warn' : '';
       parts.push(`<span class="${cls}">${presenter.remaining} Zeilen übrig</span>`);
     }
-    if (presenter.ended) parts.push('Song beendet');
-    if (presenter.pendingJump >= 0) parts.push(`<span class="rest-crit">Sprung armiert → Zeile ${presenter.pendingJump + 1} (Space)</span>`);
+    if (presenter.pendingJump >= 0) parts.push(`<span class="rest-crit">Sprung armiert → Zeile ${presenter.pendingJump + 1} (Leertaste)</span>`);
     metaEl.innerHTML = parts.join(' · ');
   }
 
@@ -615,7 +619,6 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
         }
         if (activeIndex >= 0 && presenter.started && songs[activeIndex].status !== 'playing') {
           songs[activeIndex].status = 'playing';
-          persist();
         }
         renderSongs();
         renderMarkers();
@@ -654,7 +657,6 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
       }
       if (msg.kind === 'song-ended') {
         if (activeIndex >= 0) songs[activeIndex].status = 'finished';
-        persist();
         renderSongs();
         // Auto-Next wie im Original
         if (activeIndex < songs.length - 1) loadSong(activeIndex + 1);

@@ -146,13 +146,30 @@
       main.with-sidebar {
         grid-template-columns: 430px 1fr 360px;
       }
+      /* Rechte Spalte wäre leer (keine Regler/Aktionen) → ausblenden und
+         den Platz dem Spiel-Panel bzw. der Vorschau geben */
+      main.no-side {
+        grid-template-columns: 1fr;
+      }
+      main.with-sidebar.no-side {
+        grid-template-columns: minmax(560px, 48%) 1fr;
+      }
       #sidebar-col {
         overflow-y: auto;
         padding-right: 4px;
       }
       #sidebar-col > .panel {
         flex-shrink: 0;
-        min-height: calc(100% - 2px);
+        /* feste Höhe (nicht min-height): nur so bekommt der Panel-Inhalt
+           eine definite Höhe und die Listen scrollen INTERN statt das
+           ganze Panel aus dem Fenster zu schieben */
+        height: calc(100% - 2px);
+        display: flex;
+        flex-direction: column;
+      }
+      #sidebar-col > .panel #game-ui {
+        flex: 1;
+        min-height: 0;
       }
       #sidebar-col::-webkit-scrollbar {
         width: 8px;

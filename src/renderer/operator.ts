@@ -90,6 +90,16 @@ function buildPanels(entry: GameEntry | null) {
   sidebarCol.hidden = !useSidebar;
   mainEl.classList.toggle('with-sidebar', useSidebar);
 
+  // Rechte Spalte komplett ausblenden, wenn sie leer wäre (Spiel ohne
+  // Regler und Aktionen, z.B. Schmalaoke) — der Platz geht ans Spiel-Panel.
+  // Ohne aktives Spiel bleibt sie sichtbar (zeigt, wo Einstellungen landen).
+  const faderDefs = (entry?.settings ?? []).filter((d) => d.variant === 'fader');
+  const sliderDefs = (entry?.settings ?? []).filter((d) => d.variant !== 'fader');
+  const hasSide = !entry || faderDefs.length > 0 || sliderDefs.length > 0 || (entry.actions ?? []).length > 0;
+  const sideCol = document.querySelector<HTMLElement>('.col-side')!;
+  sideCol.hidden = !hasSide;
+  mainEl.classList.toggle('no-side', !hasSide);
+
   if (entry?.buildOperatorPanel) {
     gamePanelEl.hidden = false;
     $('game-panel-title').textContent = entry.title;
@@ -105,8 +115,6 @@ function buildPanels(entry: GameEntry | null) {
   }
 
   // Live-Fader bekommen ein eigenes Panel, der Rest wird zum normalen Slider
-  const faderDefs = (entry.settings ?? []).filter((d) => d.variant === 'fader');
-  const sliderDefs = (entry.settings ?? []).filter((d) => d.variant !== 'fader');
   livePanel.hidden = !faderDefs.length;
   for (const def of faderDefs) liveEl.appendChild(buildFader(def));
 
