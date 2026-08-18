@@ -297,13 +297,10 @@ window.bus.onMessage((raw) => {
     buildPanels(entryById(activeGameId));
   }
 
-  // Aktives Spiel markieren + ON-AIR-Anzeige
+  // Aktives Spiel markieren
   document.querySelectorAll<HTMLButtonElement>('.game-btn').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.id === activeGameId);
   });
-  const onair = $('onair');
-  onair.classList.toggle('live', activeGameId !== null);
-  $('onair-label').textContent = activeGameId ? 'ON AIR' : 'STANDBY';
 
   // Reglerwerte übernehmen (außer der Regler wird gerade bedient)
   const entry = entryById(activeGameId);

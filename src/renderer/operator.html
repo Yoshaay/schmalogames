@@ -100,39 +100,6 @@
         flex: 1;
       }
 
-      .onair {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        font-family: var(--font-mono);
-        font-size: 12px;
-        letter-spacing: 0.2em;
-        padding: 6px 14px;
-        border: 1px solid var(--panel-edge);
-        border-radius: 4px;
-        color: var(--ink-dim);
-      }
-      .onair .dot {
-        width: 9px;
-        height: 9px;
-        border-radius: 50%;
-        background: #3a3e4c;
-      }
-      .onair.live {
-        color: var(--live);
-        border-color: rgba(231, 29, 115, 0.5);
-      }
-      .onair.live .dot {
-        background: var(--live);
-        animation: blink 1.1s steps(2, jump-none) infinite;
-        box-shadow: 0 0 10px rgba(231, 29, 115, 0.8);
-      }
-      @keyframes blink {
-        50% {
-          opacity: 0.35;
-        }
-      }
-
       /* ---------- Layout ---------- */
       main {
         flex: 1;
@@ -575,7 +542,6 @@
       <h1>SCHMALO<span>GAMES</span></h1>
       <div class="header-sub">Videowall Operator</div>
       <div class="spacer"></div>
-      <div class="onair" id="onair"><span class="dot"></span><span id="onair-label">STANDBY</span></div>
       <button id="syncdebug" title="Beat-Blitz auf der Wall zum Einpegeln des Sync-Offsets">🔧 Sync-Debug</button>
       <button id="fullscreen">Wall-Vollbild ⛶</button>
     </header>
