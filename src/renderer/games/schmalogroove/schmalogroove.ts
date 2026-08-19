@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Game, GameContext, SettingValues, VIEW_W, VIEW_H } from '../../core/game';
 import { Confetti } from '../../core/confetti';
 import { BeatEngine } from '../../core/beat';
-import { Dancer } from './dancer';
+import { Dancer, MOVE_NAMES } from './dancer';
 import { MIXAMO_CLIPS } from './mixamo-clips';
 import { SpeedBurst } from './burst';
 
@@ -50,7 +50,7 @@ const backOut = (t: number) => {
 
 /** Nachrichten vom Operator-Panel (operator-panel.ts) */
 interface Cmd {
-  cmd: 'hello' | 'load' | 'play' | 'pause' | 'tap' | 'auto' | 'mic' | 'seek' | 'micdev';
+  cmd: 'hello' | 'load' | 'play' | 'pause' | 'tap' | 'auto' | 'mic' | 'seek' | 'micdev' | 'move';
   name?: string;
   data?: ArrayBuffer;
   frac?: number;
@@ -96,6 +96,8 @@ export class Schmalogroove implements Game {
   /* ---------- Beat + Show ---------- */
   private engine = new BeatEngine();
   private moveAmp = 1;
+  /** Fest angewählte Pose (Operator) — pausiert die 8-Beat-Rotation */
+  private lockedMove: string | null = null;
   /** Geglätteter Seitenwechsel — kein hartes Umschnappen pro Beat */
   private dirSmooth = 1;
   private time = 0;
@@ -133,7 +135,7 @@ export class Schmalogroove implements Game {
     if (USE_MOCAP_CLIPS) this.dancer.loadMixamoClips(MIXAMO_CLIPS);
     this.buildScene();
     this.engine.onBeat = () => {
-      if (this.engine.beatCount % 8 === 0) this.dancer.nextMove();
+      if (this.engine.beatCount % 8 === 0 && !this.lockedMove) this.dancer.nextMove();
     };
     navigator.mediaDevices.addEventListener('devicechange', this.onDeviceChange);
   }
@@ -252,6 +254,12 @@ export class Schmalogroove implements Game {
         break;
       case 'seek':
         this.seekTo(msg.frac ?? 0);
+        break;
+      case 'move':
+        // Leerer Name = zurück zur automatischen Rotation
+        this.lockedMove = msg.name || null;
+        if (this.lockedMove) this.dancer.setMove(this.lockedMove);
+        this.sendTick();
         break;
     }
   }
@@ -463,8 +471,6 @@ export class Schmalogroove implements Game {
     const shrink = 0.16;
 
     g.fillStyle = color;
-    g.shadowColor = color;
-    g.shadowBlur = 26;
     let backbone = 0;
     for (const t of this.cheerTris) {
       let u: number;
@@ -507,7 +513,6 @@ export class Schmalogroove implements Game {
       g.closePath();
       g.fill();
     }
-    g.shadowBlur = 0;
 
     /* ---- Schrift: mittig im Cluster, eigener Pop nach der Welle ---- */
     let ts = backOut(clamp01((elapsed - 0.25) / 0.3));
@@ -518,12 +523,8 @@ export class Schmalogroove implements Game {
       g.scale(ts * fit, ts * fit);
       g.textAlign = 'center';
       g.textBaseline = 'middle';
-      g.shadowColor = 'rgba(255, 255, 255, 0.85)';
-      g.shadowBlur = 28;
       g.fillStyle = '#ffffff';
       // Versalien sitzen mit baseline=middle optisch etwas tief — leicht anheben
-      g.fillText(this.cheer, 0, 8);
-      g.shadowBlur = 0;
       g.fillText(this.cheer, 0, 8);
     }
     g.restore();
@@ -552,10 +553,10 @@ export class Schmalogroove implements Game {
     // transparenten Bühnenfläche des Hintergrunds
     this.camera.setViewOffset(VIEW_W, VIEW_H, VIEW_W / 2 - STAGE_CENTER_X, 0, VIEW_W, VIEW_H);
 
-    /* Gleichmäßiges Licht, keine Schatten, keine Effekte.
-       Summe ≈ 1,0 — mehr würde die Toon-Farben Richtung Weiß clippen */
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0xdde5cc, 0.5));
-    const key = new THREE.SpotLight(0xffffff, 0.55, 20, Math.PI / 5, 0.5, 1.2);
+    /* CI-Shading: genau EIN weißes Licht mit Intensität 1,0 — die Toon-Stufen
+       des Dancers (100/90/80%) multiplizieren direkt die CI-Farbwerte.
+       Jede weitere Lichtquelle oder Tönung würde die Farben verfälschen. */
+    const key = new THREE.DirectionalLight(0xffffff, 1.0);
     key.position.set(2.5, 5, 3);
     this.scene.add(key);
 
@@ -731,6 +732,8 @@ export class Schmalogroove implements Game {
       conf: this.engine.conf,
       manual: this.engine.manual,
       move: this.dancer.moveName,
+      moves: MOVE_NAMES,
+      lockedMove: this.lockedMove,
     });
   }
 

@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader';
-import modelData from './assets/uploads_files_4370839_MOBF001.fbx';
+import modelData from './assets/DanceAvatar_rigged.fbx';
 
 /**
- * Tänzer auf Basis des FBX-Modells (Character-Creator-Rig, CC_Base_*-Bones).
+ * Tänzer auf Basis des FBX-Modells (Mixamo-Rig, mixamorig*-Bones).
  * Die Moves rechnen weiter auf dem einfachen konzeptionellen Rig des Prototyps
  * (hips/spine/chest/…, Rotationen um Welt-Achsen). Eine Retarget-Schicht
  * überträgt sie auf das echte Skelett: Pro Bone wird die Welt-Achsen-Rotation
@@ -31,60 +31,68 @@ export interface MoveCtx {
   beatCount: number;
   /** aktuelles Tempo (für Clip-Playback), 0 = unbekannt */
   bpm?: number;
+  /** Block-Zufall 0..1, konstant bis zum Move-Wechsel — für Stil-Varianten */
+  v1?: number;
+  v2?: number;
+  /** Akzent: 1 auf der „1" jedes 4er-Takts, 0.35 auf der „3", sonst 0 */
+  acc?: number;
 }
 
-/** Konzeptionelles Rig → CC-Bones im FBX */
+/** Konzeptionelles Rig → Mixamo-Bones im FBX (FBXLoader entfernt die ':') */
 const BONE_MAP: Record<string, string> = {
-  hips: 'CC_Base_Hip',
-  spine: 'CC_Base_Waist',
-  chest: 'CC_Base_Spine02',
-  neck: 'CC_Base_NeckTwist01',
-  head: 'CC_Base_Head',
-  'upper_arm.L': 'CC_Base_L_Upperarm',
-  'forearm.L': 'CC_Base_L_Forearm',
-  'hand.L': 'CC_Base_L_Hand',
-  'thigh.L': 'CC_Base_L_Thigh',
-  'shin.L': 'CC_Base_L_Calf',
-  'foot.L': 'CC_Base_L_Foot',
-  'upper_arm.R': 'CC_Base_R_Upperarm',
-  'forearm.R': 'CC_Base_R_Forearm',
-  'hand.R': 'CC_Base_R_Hand',
-  'thigh.R': 'CC_Base_R_Thigh',
-  'shin.R': 'CC_Base_R_Calf',
-  'foot.R': 'CC_Base_R_Foot',
+  hips: 'mixamorigHips',
+  spine: 'mixamorigSpine',
+  chest: 'mixamorigSpine2',
+  neck: 'mixamorigNeck',
+  head: 'mixamorigHead',
+  'upper_arm.L': 'mixamorigLeftArm',
+  'forearm.L': 'mixamorigLeftForeArm',
+  'hand.L': 'mixamorigLeftHand',
+  'thigh.L': 'mixamorigLeftUpLeg',
+  'shin.L': 'mixamorigLeftLeg',
+  'foot.L': 'mixamorigLeftFoot',
+  'upper_arm.R': 'mixamorigRightArm',
+  'forearm.R': 'mixamorigRightForeArm',
+  'hand.R': 'mixamorigRightHand',
+  'thigh.R': 'mixamorigRightUpLeg',
+  'shin.R': 'mixamorigRightLeg',
+  'foot.R': 'mixamorigRightFoot',
 };
 
 /**
- * Mixamo-Skelett → CC-Bones: Mapping für das Clip-Retargeting.
- * Beide Rigs stehen in T-Pose, daher lassen sich die Rotationen als
- * Welt-Deltas über die Rest-Posen-Konjugation übertragen.
+ * Mixamo-Skelett (Clip) → Bones des Modells: Mapping für das Clip-Retargeting.
+ * Das Modell trägt selbst ein Mixamo-Rig, daher ist das Mapping die Identität —
+ * die Rest-Posen-Konjugation über Welt-Deltas bleibt trotzdem nötig, weil
+ * Clip-Rig und Modell-Rig unterschiedliche Proportionen haben können.
  */
-const MIX_TO_CC: Record<string, string> = {
-  mixamorigHips: 'CC_Base_Hip',
-  mixamorigSpine: 'CC_Base_Waist',
-  mixamorigSpine1: 'CC_Base_Spine01',
-  mixamorigSpine2: 'CC_Base_Spine02',
-  mixamorigNeck: 'CC_Base_NeckTwist01',
-  mixamorigHead: 'CC_Base_Head',
-  mixamorigLeftShoulder: 'CC_Base_L_Clavicle',
-  mixamorigLeftArm: 'CC_Base_L_Upperarm',
-  mixamorigLeftForeArm: 'CC_Base_L_Forearm',
-  mixamorigLeftHand: 'CC_Base_L_Hand',
-  mixamorigLeftUpLeg: 'CC_Base_L_Thigh',
-  mixamorigLeftLeg: 'CC_Base_L_Calf',
-  mixamorigLeftFoot: 'CC_Base_L_Foot',
-  mixamorigLeftToeBase: 'CC_Base_L_ToeBase',
-  mixamorigRightShoulder: 'CC_Base_R_Clavicle',
-  mixamorigRightArm: 'CC_Base_R_Upperarm',
-  mixamorigRightForeArm: 'CC_Base_R_Forearm',
-  mixamorigRightHand: 'CC_Base_R_Hand',
-  mixamorigRightUpLeg: 'CC_Base_R_Thigh',
-  mixamorigRightLeg: 'CC_Base_R_Calf',
-  mixamorigRightFoot: 'CC_Base_R_Foot',
-  mixamorigRightToeBase: 'CC_Base_R_ToeBase',
-};
+const CLIP_BONE_MAP: Record<string, string> = Object.fromEntries(
+  [
+    'mixamorigHips',
+    'mixamorigSpine',
+    'mixamorigSpine1',
+    'mixamorigSpine2',
+    'mixamorigNeck',
+    'mixamorigHead',
+    'mixamorigLeftShoulder',
+    'mixamorigLeftArm',
+    'mixamorigLeftForeArm',
+    'mixamorigLeftHand',
+    'mixamorigLeftUpLeg',
+    'mixamorigLeftLeg',
+    'mixamorigLeftFoot',
+    'mixamorigLeftToeBase',
+    'mixamorigRightShoulder',
+    'mixamorigRightArm',
+    'mixamorigRightForeArm',
+    'mixamorigRightHand',
+    'mixamorigRightUpLeg',
+    'mixamorigRightLeg',
+    'mixamorigRightFoot',
+    'mixamorigRightToeBase',
+  ].map((n) => [n, n]),
+);
 
-/** Ein fertig auf das CC-Rig gebackener Mocap-Clip */
+/** Ein fertig auf das Modell-Rig gebackener Mocap-Clip */
 interface BakedClip {
   name: string;
   bpm: number;
@@ -93,14 +101,14 @@ interface BakedClip {
   frames: number;
   /** Clip-Zeit (s), bei der der erste Beat liegt — automatisch gemessen */
   beatOffset: number;
-  /** pro Ziel-Bone: Quaternions im lokalen CC-Raum, Frame-Raster */
-  tracks: Array<{ rest: CcRest; quats: Float32Array }>;
-  /** Hüft-Position (lokaler CC-Raum), xyz pro Frame */
+  /** pro Ziel-Bone: Quaternions im lokalen Bone-Raum, Frame-Raster */
+  tracks: Array<{ rest: BoneRest; quats: Float32Array }>;
+  /** Hüft-Position (lokaler Bone-Raum), xyz pro Frame */
   hipsPos: Float32Array;
 }
 
-/** Eingefrorene Rest-Pose eines CC-Bones (Bind-Pose) */
-interface CcRest {
+/** Eingefrorene Rest-Pose eines Modell-Bones (Bind-Pose) */
+interface BoneRest {
   node: THREE.Object3D;
   restLocalQuat: THREE.Quaternion;
   restWorldQuat: THREE.Quaternion;
@@ -116,14 +124,16 @@ interface CcRest {
 const NEUTRAL: Record<string, [number, number, number]> = {
   'upper_arm.L': [0, 0, -1.25],
   'upper_arm.R': [0, 0, 1.25],
-  'forearm.L': [-0.15, 0, -0.15],
-  'forearm.R': [-0.15, 0, 0.15],
+  // leichte Grundbeuge der Ellbogen — auf diesem Rig beugt Welt-Y (s. AXIS_REMAP)
+  'forearm.L': [0, -0.15, -0.15],
+  'forearm.R': [0, 0.15, 0.15],
 };
 
 /**
  * Achsen-Korrektur pro Bone: Vorzeichen-Faktoren [x, y, z] für die
- * Move-Rotationen. Die Beine des CC-Rigs beugen um X gespiegelt zum
- * konzeptionellen Rig — sonst knicken die Knie nach vorn durch.
+ * Move-Rotationen. Die Beine beugen um X gespiegelt zum konzeptionellen
+ * Rig — sonst knicken die Knie nach vorn durch. (Vom CC-Rig übernommen;
+ * beim Mixamo-Rig nach dem ersten Render prüfen.)
  */
 const AXIS_FIX: Record<string, [number, number, number]> = {
   'thigh.L': [-1, 1, 1],
@@ -132,6 +142,23 @@ const AXIS_FIX: Record<string, [number, number, number]> = {
   'thigh.R': [-1, 1, 1],
   'shin.R': [-1, 1, 1],
   'foot.R': [-1, 1, 1],
+};
+
+/**
+ * Achsen-UMLEITUNG für Unterarme und Hände: Das Rig bindet in strenger
+ * T-Pose, die Arme liegen also auf der Welt-X-Achse — eine Move-Rotation
+ * um X ist dort reiner Twist um die Armlängsachse statt einer Beugung
+ * (empirisch gemessen: x=-1.9 ergibt nur 23° Beugung, y=-1.9 dagegen 108°,
+ * Hand kommt nach vorn-oben). Die Move-Semantik "x = Ellbogen beugen"
+ * bleibt erhalten, indem x hier auf die Welt-Y-Achse umgeleitet wird —
+ * links negativ, rechts positiv (Spiegelbild). z (Beugen zur Körpermitte,
+ * mit sx-Vorzeichen in den Moves) stimmt auf beiden Seiten und bleibt.
+ */
+const AXIS_REMAP: Record<string, (e: THREE.Euler, out: THREE.Euler) => void> = {
+  'forearm.L': (e, out) => out.set(e.y, e.x, e.z),
+  'forearm.R': (e, out) => out.set(-e.y, -e.x, e.z),
+  'hand.L': (e, out) => out.set(e.y, e.x, e.z),
+  'hand.R': (e, out) => out.set(-e.y, -e.x, e.z),
 };
 
 const SIDES: Array<[string, number]> = [
@@ -154,259 +181,174 @@ const MOVES: Array<{ name: string; fn(b: MoveBones, c: MoveCtx): void }> = [
     name: 'GROOVE', // der Basis-Move
     fn(b, c) {
       const { k, dip, dir, s1, nod } = c;
-      b.hips.position.y -= 0.075 * k * dip;
-      b.hips.rotation.z = 0.1 * k * dip * dir;
-      b.hips.rotation.y = 0.14 * k * s1 * dir;
-      b.chest.rotation.z = -0.07 * k * dip * dir;
-      b.chest.rotation.y = -0.18 * k * s1 * dir;
-      b.spine.rotation.x = 0.05 * k * dip;
-      b.head.rotation.x = -0.3 * k * nod + 0.06 * k * dip;
-      b.head.rotation.z = 0.05 * k * dip * dir;
+      const v1 = c.v1 ?? 0.5;
+      const acc = c.acc ?? 0;
+      b.hips.position.y -= (0.1 + 0.03 * acc) * k * dip;
+      b.hips.rotation.z = 0.13 * k * dip * dir;
+      b.hips.rotation.y = 0.18 * k * s1 * dir;
+      b.chest.rotation.z = -0.09 * k * dip * dir;
+      b.chest.rotation.y = -0.24 * k * s1 * dir;
+      b.chest.rotation.x = -0.08 * k * acc * dip; // Brust-Pop auf der „1"
+      b.spine.rotation.x = 0.06 * k * dip;
+      b.head.rotation.x = -0.38 * k * nod + 0.07 * k * dip;
+      b.head.rotation.z = 0.06 * k * dip * dir;
+      // Block-Variante: Arme pumpen tief an der Hüfte oder vor der Brust
+      const lift = 0.3 + 0.5 * v1;
       for (const [side, sx] of SIDES) {
-        b['upper_arm.' + side].rotation.z = sx * (0.35 + 0.15 * k * dip);
-        b['upper_arm.' + side].rotation.x = -0.25 - 0.55 * k * s1 * dir * sx;
-        b['forearm.' + side].rotation.x = -0.85 - 0.55 * k * dip;
-        b['hand.' + side].rotation.x = -0.2 * k * dip;
+        b['upper_arm.' + side].rotation.z = sx * (0.35 + 0.2 * k * dip);
+        b['upper_arm.' + side].rotation.x = -lift - 0.7 * k * s1 * dir * sx;
+        b['forearm.' + side].rotation.x = -0.7 - 0.35 * lift - 0.7 * k * dip;
+        b['hand.' + side].rotation.x = -0.3 * k * dip;
       }
-      bendKnees(b, 0.45 * k * dip);
-    },
-  },
-  {
-    name: 'DISCO POINT', // Saturday-Night-Fever-Zeigefinger
-    fn(b, c) {
-      const { k, dip, dir, s1 } = c;
-      const pt = dir > 0 ? 'L' : 'R';
-      const hip = dir > 0 ? 'R' : 'L';
-      const sxP = dir;
-      const sxH = -dir;
-      b.hips.position.y -= 0.05 * k * dip;
-      b.hips.rotation.z = 0.09 * k * s1 * dir;
-      b.chest.rotation.z = 0.1 * k * s1 * dir;
-      b.head.rotation.z = -0.1 * k * s1 * dir;
-      b.head.rotation.y = 0.25 * k * s1 * dir; // Blick folgt der Hand
-      // Zeigearm: diagonal nach schräg oben, auf dem Beat voll gestreckt
-      b['upper_arm.' + pt].rotation.z = sxP * (0.9 + 1.5 * k * dip);
-      b['upper_arm.' + pt].rotation.x = -0.35;
-      b['forearm.' + pt].rotation.x = -0.55 + 0.45 * k * dip; // streckt sich
-      // Andere Hand in die Hüfte
-      b['upper_arm.' + hip].rotation.z = sxH * 0.85;
-      b['forearm.' + hip].rotation.x = -1.9;
-      b['forearm.' + hip].rotation.z = sxH * -0.6;
-      bendKnees(b, 0.3 * k * dip);
-    },
-  },
-  {
-    name: 'RUNNING MAN', // Laufschritt auf der Stelle
-    fn(b, c) {
-      const { k, dip, dir, s1, nod } = c;
-      b.hips.position.y -= 0.1 * k * dip;
-      b.spine.rotation.x = 0.12 * k; // leicht vorgebeugt
-      b.head.rotation.x = -0.25 * k * nod;
-      const front = dir > 0 ? 'L' : 'R';
-      const back = dir > 0 ? 'R' : 'L';
-      b['thigh.' + front].rotation.x = 0.85 * k * s1; // Knie hoch
-      b['shin.' + front].rotation.x = -1.3 * k * s1;
-      b['foot.' + front].rotation.x = 0.5 * k * s1;
-      b['thigh.' + back].rotation.x = -0.35 * k * s1; // Standbein schiebt zurück
-      b['shin.' + back].rotation.x = -0.25 * k * s1;
-      for (const [side, sx] of SIDES) {
-        // Arme pumpen gegengleich
-        const opp = side === front ? -1 : 1;
-        b['upper_arm.' + side].rotation.z = sx * 0.25;
-        b['upper_arm.' + side].rotation.x = -0.25 + 0.8 * k * s1 * opp;
-        b['forearm.' + side].rotation.x = -1.45;
-      }
+      bendKnees(b, (0.5 + 0.15 * acc) * k * dip);
     },
   },
   {
     name: 'TWIST', // Chubby-Checker-Hüftschwung
     fn(b, c) {
       const { k, p, dip } = c;
-      const tw = 0.55 * k * Math.sin((c.beatCount + p) * Math.PI); // durchgehende Welle
-      b.hips.position.y -= 0.05 * k * dip;
+      const v1 = c.v1 ?? 0.5;
+      const tw = (0.6 + 0.15 * v1) * k * Math.sin((c.beatCount + p) * Math.PI); // durchgehende Welle
+      // über 8 Beats einmal runter in die Knie und wieder hoch — wie beim echten Twist
+      const low = 0.5 - 0.5 * Math.cos((((c.beatCount % 8) + p) / 8) * Math.PI * 2);
+      b.hips.position.y -= k * (0.05 * dip + 0.16 * low);
       b.hips.rotation.y = tw; // Unterkörper dreht…
       b.chest.rotation.y = -1.7 * tw; // …Oberkörper kontert
       b.head.rotation.y = 0.6 * tw;
+      b.spine.rotation.x = 0.12 * k * low; // unten leicht vorgebeugt
       for (const [side, sx] of SIDES) {
         // Arme angewinkelt, schwingen mit
         b['upper_arm.' + side].rotation.z = sx * 0.55;
-        b['upper_arm.' + side].rotation.x = -0.35;
+        b['upper_arm.' + side].rotation.x = -0.35 - 0.25 * k * low;
         b['forearm.' + side].rotation.x = -1.55;
         b['foot.' + side].rotation.y = -0.8 * tw; // Füße pivotieren auf dem Ballen
       }
-      bendKnees(b, 0.35 * k * (0.6 + 0.4 * dip));
-    },
-  },
-  {
-    name: 'RAISE THE ROOF', // beide Hände pushen nach oben
-    fn(b, c) {
-      const { k, dip, dir, s1, nod } = c;
-      b.hips.position.y -= 0.07 * k * dip;
-      b.hips.rotation.z = 0.05 * k * s1 * dir;
-      b.spine.rotation.x = -0.12 * k * dip; // leicht ins Hohlkreuz
-      b.head.rotation.x = 0.28 * k * dip - 0.1 * k * nod; // Blick nach oben
-      for (const [side, sx] of SIDES) {
-        b['upper_arm.' + side].rotation.z = sx * (2.45 + 0.25 * k * dip);
-        b['upper_arm.' + side].rotation.x = -0.15;
-        b['forearm.' + side].rotation.x = -1.15 + 0.95 * k * dip; // Push = strecken
-        b['hand.' + side].rotation.x = 1.4; // Handflächen zur Decke
-      }
-      bendKnees(b, 0.4 * k * dip);
+      bendKnees(b, k * (0.3 * (0.6 + 0.4 * dip) + 0.5 * low));
     },
   },
   {
     name: 'SIDE CLAP', // Lehnen zur Seite mit Clap vor der Brust
     fn(b, c) {
       const { k, dip, dir, s1 } = c;
+      const acc = c.acc ?? 0;
       // Lehnen statt seitlich verschieben — verschieben ließe die Füße
       // über den Boden rutschen (Moonwalk-Effekt)
-      b.hips.position.y -= 0.06 * k * dip;
-      b.hips.rotation.z = -0.1 * k * s1 * dir;
-      b.chest.rotation.z = 0.18 * k * s1 * dir; // lehnt in den Beat
-      b.head.rotation.z = -0.08 * k * s1 * dir;
+      b.hips.position.y -= 0.07 * k * dip;
+      b.hips.rotation.z = -0.13 * k * s1 * dir;
+      b.chest.rotation.z = (0.24 + 0.06 * acc) * k * s1 * dir; // lehnt in den Beat
+      b.head.rotation.z = -0.1 * k * s1 * dir;
       for (const [side, sx] of SIDES) {
-        b['upper_arm.' + side].rotation.z = sx * 0.3;
+        b['upper_arm.' + side].rotation.z = sx * (0.5 - 0.15 * k * dip); // weit öffnen…
         b['upper_arm.' + side].rotation.x = -0.95;
-        b['upper_arm.' + side].rotation.y = -sx * 0.75 * k * dip; // Hände zueinander
-        b['forearm.' + side].rotation.x = -0.55 - 0.25 * k * dip;
+        b['upper_arm.' + side].rotation.y = -sx * (0.95 + 0.1 * acc) * k * dip; // …und zusammenklatschen
+        b['forearm.' + side].rotation.x = -0.5 - 0.35 * k * dip;
       }
-      // Spielbein hebt leicht ab
+      // Spielbein hebt ab
       const lift = dir > 0 ? 'R' : 'L';
-      b['thigh.' + lift].rotation.x = 0.25 * k * dip;
-      b['shin.' + lift].rotation.x = -0.45 * k * dip;
-      bendKnees(b, 0.2 * k * dip);
+      b['thigh.' + lift].rotation.x = 0.35 * k * dip;
+      b['shin.' + lift].rotation.x = -0.6 * k * dip;
+      bendKnees(b, 0.25 * k * dip);
     },
   },
   {
-    name: 'SQUAT PUMP', // tiefe Kniebeuge, Arme schieben nach vorn
-    fn(b, c) {
-      const { k, dip, dir, s1 } = c;
-      const deep = 0.45 + 0.55 * dip; // bleibt unten im Groove
-      b.hips.position.y -= 0.22 * k * deep;
-      b.spine.rotation.x = 0.2 * k * deep; // Oberkörper kompensiert nach vorn
-      b.chest.rotation.x = 0.08 * k * deep;
-      b.head.rotation.x = -0.18 * k * deep; // Blick bleibt vorn
-      b.hips.rotation.y = 0.1 * k * s1 * dir;
-      bendKnees(b, 0.9 * k * deep);
-      for (const [side, sx] of SIDES) {
-        b['upper_arm.' + side].rotation.z = sx * 0.25;
-        b['upper_arm.' + side].rotation.x = -0.5 - 0.6 * k * deep; // Balance nach vorn
-        b['forearm.' + side].rotation.x = -0.35 + 0.2 * k * deep;
-      }
-    },
-  },
-  {
-    name: 'BODY ROLL', // Welle rollt über 2 Beats durch den Körper nach unten
-    fn(b, c) {
-      const { k, p } = c;
-      const cyc = ((c.beatCount % 2) + p) / 2; // 0..1 über 2 Beats
-      const down = Math.sin(cyc * Math.PI); // runter und wieder rauf
-      const wave = (off: number) => Math.sin(cyc * Math.PI * 2 - off);
-      b.head.rotation.x = 0.35 * k * wave(0);
-      b.chest.rotation.x = 0.28 * k * wave(0.9);
-      b.spine.rotation.x = 0.22 * k * wave(1.8);
-      b.hips.position.y -= 0.18 * k * down;
-      bendKnees(b, 0.7 * k * down);
-      for (const [side, sx] of SIDES) {
-        b['upper_arm.' + side].rotation.z = sx * (0.3 + 0.25 * k * down);
-        b['forearm.' + side].rotation.x = -0.5 - 0.4 * k * down;
-      }
-    },
-  },
-  {
-    name: 'HIP CIRCLE', // Hüfte kreist, beide Hände an der Hüfte
+    name: 'HIP CIRCLE', // Hüfte kreist
     fn(b, c) {
       const { k, p, dip } = c;
-      const a = (c.beatCount + p) * Math.PI; // halber Kreis pro Beat
-      b.hips.rotation.x = 0.12 * k * Math.cos(a);
-      b.hips.rotation.z = 0.16 * k * Math.sin(a);
-      b.chest.rotation.x = -0.1 * k * Math.cos(a); // Oberkörper kontert
-      b.chest.rotation.z = -0.13 * k * Math.sin(a);
-      b.head.rotation.z = 0.05 * k * Math.sin(a);
+      const v1 = c.v1 ?? 0.5;
+      const v2 = c.v2 ?? 0.5;
+      const rot = v1 < 0.5 ? 1 : -1; // Block-Variante: Kreisrichtung
+      const a = (c.beatCount + p) * Math.PI * rot; // halber Kreis pro Beat
+      b.hips.rotation.x = 0.16 * k * Math.cos(a);
+      b.hips.rotation.z = 0.22 * k * Math.sin(a);
+      b.chest.rotation.x = -0.13 * k * Math.cos(a); // Oberkörper kontert
+      b.chest.rotation.z = -0.17 * k * Math.sin(a);
+      b.head.rotation.z = 0.06 * k * Math.sin(a);
+      // Block-Variante: Hände an der Hüfte oder Arme hoch im V,
+      // die mit dem Hüftkreis mitschwingen
+      const up = v2 >= 0.5;
       for (const [side, sx] of SIDES) {
-        b['upper_arm.' + side].rotation.z = sx * 0.85;
-        b['forearm.' + side].rotation.x = -1.85;
-        b['forearm.' + side].rotation.z = sx * -0.55;
+        if (up) {
+          b['upper_arm.' + side].rotation.z = sx * 2.3 + 0.3 * k * Math.sin(a);
+          b['upper_arm.' + side].rotation.x = -0.1;
+          b['forearm.' + side].rotation.x = -0.35;
+          b['hand.' + side].rotation.x = 0.2;
+        } else {
+          b['upper_arm.' + side].rotation.z = sx * 0.85;
+          b['forearm.' + side].rotation.x = -1.9;
+          b['forearm.' + side].rotation.z = sx * -0.55;
+        }
       }
-      bendKnees(b, 0.3 * k * (0.5 + 0.5 * dip));
+      bendKnees(b, 0.35 * k * (0.5 + 0.5 * dip));
     },
   },
   {
     name: 'ARM WAVE', // Welle läuft gegenphasig durch beide Arme
     fn(b, c) {
       const { k, p, dip } = c;
+      const acc = c.acc ?? 0;
       const t = (c.beatCount + p) * Math.PI;
       for (const [side, sx] of SIDES) {
         const off = side === 'L' ? 0 : Math.PI; // Arme gegenphasig
-        b['upper_arm.' + side].rotation.z = sx * k * (1.3 + 0.25 * Math.sin(t + off));
-        b['forearm.' + side].rotation.z = sx * 0.35 * k * Math.sin(t + off + 1.2);
-        b['hand.' + side].rotation.z = sx * 0.5 * k * Math.sin(t + off + 2.2);
+        b['upper_arm.' + side].rotation.z = sx * k * (1.45 + 0.4 * Math.sin(t + off));
+        b['forearm.' + side].rotation.z = sx * 0.55 * k * Math.sin(t + off + 1.2);
+        b['hand.' + side].rotation.z = sx * 0.7 * k * Math.sin(t + off + 2.2);
       }
-      b.chest.rotation.z = 0.08 * k * Math.sin(t);
-      b.hips.rotation.z = -0.05 * k * Math.sin(t);
-      b.hips.position.y -= 0.05 * k * dip;
-      bendKnees(b, 0.3 * k * dip);
+      b.chest.rotation.z = 0.11 * k * Math.sin(t);
+      b.head.rotation.z = -0.07 * k * Math.sin(t);
+      b.hips.rotation.z = -0.07 * k * Math.sin(t);
+      b.hips.position.y -= (0.07 + 0.03 * acc) * k * dip;
+      bendKnees(b, (0.35 + 0.1 * acc) * k * dip);
     },
   },
   {
-    name: 'LASSO', // rechter Arm kreist über dem Kopf
+    name: 'LASSO', // ein Arm kreist über dem Kopf, Seite wechselt alle 4 Beats
     fn(b, c) {
       const { k, p, dip } = c;
+      const v2 = c.v2 ?? 0.75;
+      // Schwungarm wechselt alle 4 Beats die Seite (v2 bestimmt die Startseite);
+      // die Pose-Trägheit blendet den Wechsel weich über
+      const startL = v2 < 0.5;
+      const useL = Math.floor(c.beatCount / 4) % 2 === 0 ? startL : !startL;
+      const A = useL ? 'L' : 'R';
+      const H = useL ? 'R' : 'L';
+      const sxA = useL ? 1 : -1;
       const a = (c.beatCount + p) * Math.PI; // eine Umdrehung alle 2 Beats
-      b['upper_arm.R'].rotation.z = -2.3 * k;
-      b['upper_arm.R'].rotation.x = 0.35 * k * Math.cos(a);
-      b['upper_arm.R'].rotation.y = 0.35 * k * Math.sin(a);
-      b['forearm.R'].rotation.x = -0.9 - 0.3 * Math.sin(a);
-      // linke Hand in die Hüfte
-      b['upper_arm.L'].rotation.z = 0.85;
-      b['forearm.L'].rotation.x = -1.9;
-      b['forearm.L'].rotation.z = -0.6;
-      b.hips.rotation.y = 0.15 * k * Math.sin(a);
-      b.hips.position.y -= 0.07 * k * dip;
-      b.head.rotation.z = -0.08 * k;
-      bendKnees(b, 0.4 * k * dip);
-    },
-  },
-  {
-    name: 'KICK STEP', // wechselnde kleine Kicks nach vorn
-    fn(b, c) {
-      const { k, dip, dir, s1 } = c;
-      const front = dir > 0 ? 'L' : 'R';
-      const back = dir > 0 ? 'R' : 'L';
-      b.hips.position.y -= 0.06 * k * dip;
-      b.hips.rotation.y = -0.05 * k * s1 * dir;
-      b.chest.rotation.y = 0.1 * k * s1 * dir;
-      // Kick: Knie hoch, Unterschenkel schnellt am Beat-Peak raus
-      b['thigh.' + front].rotation.x = 0.55 * k * s1;
-      b['shin.' + front].rotation.x = -0.55 * k * (1 - s1);
-      b['foot.' + front].rotation.x = 0.3 * k * s1;
-      // Standbein federt leicht
-      b['thigh.' + back].rotation.x = 0.12 * k * dip;
-      b['shin.' + back].rotation.x = -0.25 * k * dip;
-      b['foot.' + back].rotation.x = 0.12 * k * dip;
-      for (const [side, sx] of SIDES) {
-        const opp = side === front ? -1 : 1;
-        b['upper_arm.' + side].rotation.z = sx * 0.3;
-        b['upper_arm.' + side].rotation.x = -0.2 + 0.5 * k * s1 * opp;
-        b['forearm.' + side].rotation.x = -0.9;
-      }
+      // großer Kreis als präzedierende Kippung: vor/zurück (x) + seitlich (z)
+      // im Wechsel — die Hand beschreibt einen weiten Kegel. KEIN rotation.y:
+      // am gehobenen Arm wäre das die Drehung um die eigene Längsachse
+      b['upper_arm.' + A].rotation.z = sxA * 2.35 * k + 0.55 * k * Math.sin(a);
+      b['upper_arm.' + A].rotation.x = 0.55 * k * Math.cos(a);
+      b['forearm.' + A].rotation.x = -0.6 - 0.35 * Math.sin(a);
+      // andere Hand in die Hüfte
+      b['upper_arm.' + H].rotation.z = -sxA * 0.85;
+      b['forearm.' + H].rotation.x = -1.9;
+      b['forearm.' + H].rotation.z = sxA * 0.6;
+      b.hips.rotation.y = 0.22 * k * Math.sin(a);
+      b.hips.rotation.z = 0.08 * k * Math.cos(a);
+      b.chest.rotation.y = -0.12 * k * Math.sin(a);
+      b.hips.position.y -= 0.09 * k * dip;
+      b.head.rotation.z = sxA * 0.08 * k;
+      b.head.rotation.y = 0.1 * k * Math.sin(a); // Blick folgt dem Schwung
+      bendKnees(b, 0.45 * k * dip);
     },
   },
   {
     name: 'KNEE SWING', // Charleston: tief in den Knien, Knie öffnen/schließen
     fn(b, c) {
       const { k, p, dip } = c;
+      const acc = c.acc ?? 0;
       const sw = 0.5 + 0.5 * Math.sin((c.beatCount + p) * Math.PI);
-      b.hips.position.y -= 0.14 * k * (0.4 + 0.6 * dip);
-      b.spine.rotation.x = 0.22 * k;
-      b.head.rotation.x = -0.2 * k;
-      bendKnees(b, 0.55 * k * (0.5 + 0.5 * dip));
+      b.hips.position.y -= (0.16 + 0.03 * acc) * k * (0.4 + 0.6 * dip);
+      b.spine.rotation.x = 0.26 * k;
+      b.head.rotation.x = -0.24 * k;
+      bendKnees(b, (0.6 + 0.1 * acc) * k * (0.5 + 0.5 * dip));
       for (const [side, sx] of SIDES) {
-        b['thigh.' + side].rotation.y = -sx * 0.35 * k * sw; // Knie öffnen nach außen…
-        b['foot.' + side].rotation.y = -sx * 0.3 * k * sw; // …Füße pivotieren mit
+        b['thigh.' + side].rotation.y = -sx * 0.5 * k * sw; // Knie öffnen nach außen…
+        b['foot.' + side].rotation.y = -sx * 0.42 * k * sw; // …Füße pivotieren mit
         b['upper_arm.' + side].rotation.z = sx * 0.3;
-        b['upper_arm.' + side].rotation.x = -0.7 - 0.2 * k * dip;
-        b['forearm.' + side].rotation.x = -0.6;
+        b['upper_arm.' + side].rotation.x = -0.75 - 0.25 * k * dip;
+        b['forearm.' + side].rotation.x = -0.55 - 0.25 * k * sw; // Hände schwingen mit
+        b['hand.' + side].rotation.y = sx * 0.4 * k * sw;
       }
     },
   },
@@ -414,38 +356,63 @@ const MOVES: Array<{ name: string; fn(b: MoveBones, c: MoveCtx): void }> = [
     name: 'HIGH CLAP', // Klatschen über dem Kopf, federnd
     fn(b, c) {
       const { k, dip, s1, dir, nod } = c;
-      b.hips.position.y -= 0.08 * k * dip;
-      b.hips.rotation.z = 0.06 * k * s1 * dir;
-      b.spine.rotation.x = -0.08 * k * dip;
-      b.head.rotation.x = 0.18 * k * dip - 0.1 * k * nod;
+      const acc = c.acc ?? 0;
+      b.hips.position.y -= (0.1 + 0.04 * acc) * k * dip;
+      b.hips.rotation.z = 0.07 * k * s1 * dir;
+      b.spine.rotation.x = -0.1 * k * dip;
+      b.head.rotation.x = 0.22 * k * dip - 0.1 * k * nod;
+      // Schließweg zum Klatschen: hart bei 1 gekappt — Flavor/Akzent treiben
+      // k über 1, sonst schieben die Hände über den Kontaktpunkt hinaus
+      // und kreuzen durcheinander
+      const close = Math.min(1, k * dip);
       for (const [side, sx] of SIDES) {
-        b['upper_arm.' + side].rotation.z = sx * (2.2 + 0.3 * k * dip);
-        b['upper_arm.' + side].rotation.y = -sx * 0.5 * k * dip; // Hände oben zueinander
-        b['forearm.' + side].rotation.x = -0.45 + 0.25 * k * dip;
+        // zwischen den Claps weit ins V öffnen, auf dem Beat klatschen die
+        // Handflächen wirklich aufeinander: Arme über die Senkrechte nach
+        // innen (z→3.0) + Unterarme zueinander gebeugt (Werte per Simulation
+        // bestimmt: Handgelenk-Abstand ~12 cm auf 1,86 m Höhe)
+        b['upper_arm.' + side].rotation.z = sx * (2.2 + 0.8 * close);
+        b['forearm.' + side].rotation.x = -0.25;
+        b['forearm.' + side].rotation.z = sx * 0.5 * close; // über Kopf beugt +z zur Mitte
         b['hand.' + side].rotation.x = 0.3;
       }
-      bendKnees(b, 0.35 * k * dip);
+      bendKnees(b, 0.4 * k * dip);
     },
   },
   {
-    name: 'SHIMMY', // Schulter-Schütteln im Doppeltempo, leicht vorgebeugt
+    name: 'ELLI', // beide Arme angewinkelt, schwingen gemeinsam nach rechts und links
     fn(b, c) {
-      const { k, p, dip } = c;
-      const fast = Math.sin((c.beatCount + p) * Math.PI * 4);
-      b.spine.rotation.x = 0.16 * k;
-      b.chest.rotation.y = 0.16 * k * fast;
-      b.chest.rotation.z = 0.05 * k * Math.sin((c.beatCount + p) * Math.PI);
-      b.head.rotation.y = -0.1 * k * fast;
-      b.hips.position.y -= 0.1 * k * dip;
+      const { k, p, dip, nod } = c;
+      const v1 = c.v1 ?? 0.5;
+      const acc = c.acc ?? 0;
+      const sw = Math.sin((c.beatCount + p) * Math.PI); // Schwung wechselt pro Beat die Seite
+      // Hüfte groovt im Takt: Bounce auf den Beat, Sway gegen den Schwung
+      b.hips.position.y -= (0.09 + 0.03 * acc) * k * dip;
+      b.hips.rotation.z = -0.08 * k * sw;
+      b.hips.rotation.y = -0.14 * k * sw; // leichte Drehung: Hüfte kontert…
+      b.chest.rotation.y = 0.3 * k * sw; // …Oberkörper dreht in den Schwung und trägt die Hände seitlich
+      b.chest.rotation.z = -0.06 * k * sw;
+      b.head.rotation.y = 0.18 * k * sw; // Blick folgt den Händen
+      b.head.rotation.x = -0.2 * k * nod;
       for (const [side, sx] of SIDES) {
-        b['upper_arm.' + side].rotation.z = sx * 0.55;
-        b['upper_arm.' + side].rotation.x = -0.45 + 0.12 * k * fast * sx;
-        b['forearm.' + side].rotation.x = -1.2;
+        // Arm auf der Schwungseite curlt den Unterarm hoch zur Schulter,
+        // der andere streckt sich — wechselt mit dem Schwung pro Beat
+        const curl = 0.5 * (1 + sw * sx);
+        // Oberarm bleibt weitgehend hängen — nur so beugt der Welt-X-Bend
+        // sauber im Ellenbogen-Scharnier (sonst dreht der Arm sich dünn).
+        // Beim Curl geht der Ellbogen deutlich vor und leicht raus, damit
+        // der Unterarm am Bauch vorbeischwingt statt hindurch
+        b['upper_arm.' + side].rotation.z = sx * (0.35 + 0.25 * curl) + 0.2 * k * sw;
+        b['upper_arm.' + side].rotation.x = -0.15 - (0.55 + 0.2 * v1) * k * curl;
+        b['forearm.' + side].rotation.x = -0.35 - (1.8 + 0.15 * acc) * k * curl; // Unterarm hoch zur Schulter
+        b['hand.' + side].rotation.x = -0.3 * k * curl; // Handgelenk zieht mit ein
       }
-      bendKnees(b, 0.45 * k * dip);
+      bendKnees(b, (0.4 + 0.1 * acc) * k * dip);
     },
   },
 ];
+
+/** Namen aller prozeduralen Moves — fürs Operator-Panel (Pose-Anwahl) */
+export const MOVE_NAMES = MOVES.map((m) => m.name);
 
 /** Retarget-Ziel: ein CC-Bone samt eingefrorener Rest-Pose */
 interface MappedBone {
@@ -480,7 +447,7 @@ export class Dancer {
 
   /* ---------- Mocap-Clips (Mixamo-Retarget) ---------- */
   /** Rest-Posen aller Clip-Ziel-Bones (Bind-Pose, beim Laden eingefroren) */
-  private ccRest = new Map<string, CcRest>();
+  private boneRest = new Map<string, BoneRest>();
   private hipRestWorldY = 1;
   private clips: BakedClip[] = [];
   private clipIndex = 0;
@@ -516,7 +483,7 @@ export class Dancer {
     const s = ZIEL_GROESSE / size.y;
     model.scale.setScalar(s);
     model.position.y = -box.min.y * s;
-    model.rotation.y = Math.PI;
+    // Der neue Avatar schaut nativ zur Kamera — keine 180°-Drehung nötig
 
     model.traverse((o) => {
       const mesh = o as THREE.SkinnedMesh;
@@ -531,15 +498,12 @@ export class Dancer {
     this.root.add(model);
     this.root.updateWorldMatrix(true, true);
 
-    // Bones auflösen — WICHTIG, das FBX enthält drei Knotensorten mit
-    // denselben Namen: (a) einen Group-Baum ohne Skin-Wirkung, (b) den echten
-    // artikulierenden Bone-Baum unter CC_Base_BoneRoot<Bone> und (c) pro Name
-    // 9 gestapelte Leaf-Bones (eines je Mesh-Cluster, das ist der Inhalt von
-    // skeleton.bones). Nur (b) bewegt das Mesh: per BFS den flachsten Bone
-    // mit passendem Namen im Bone-Baum suchen.
+    // Bones auflösen: per BFS den flachsten Bone mit passendem Namen im
+    // Skelett suchen — robust, falls ein FBX mehrere gleichnamige Knoten
+    // enthält (beim alten CC-Rig war das der Fall)
     let boneRoot: THREE.Object3D | null = null;
     model.traverse((o) => {
-      if ((o as THREE.Bone).isBone && o.name === 'CC_Base_BoneRoot' && !boneRoot) boneRoot = o;
+      if ((o as THREE.Bone).isBone && o.name === 'mixamorigHips' && !boneRoot) boneRoot = o;
     });
     const findShallowest = (name: string): THREE.Object3D | null => {
       if (!boneRoot) return null;
@@ -552,10 +516,10 @@ export class Dancer {
       return null;
     };
 
-    for (const [ours, cc] of Object.entries(BONE_MAP)) {
-      const node = findShallowest(cc) ?? model.getObjectByName(cc);
+    for (const [ours, boneName] of Object.entries(BONE_MAP)) {
+      const node = findShallowest(boneName) ?? model.getObjectByName(boneName);
       if (!node) {
-        console.warn('Dancer: Bone fehlt im Modell:', cc);
+        console.warn('Dancer: Bone fehlt im Modell:', boneName);
         continue;
       }
       const restWorld = node.getWorldQuaternion(new THREE.Quaternion());
@@ -584,11 +548,11 @@ export class Dancer {
 
     // Rest-Posen aller Clip-Ziel-Bones einfrieren (für das Mocap-Retargeting) —
     // hier ist das Modell garantiert noch in Bind-Pose
-    for (const ccName of Object.values(MIX_TO_CC)) {
-      const node = findShallowest(ccName);
+    for (const boneName of Object.values(CLIP_BONE_MAP)) {
+      const node = findShallowest(boneName);
       if (!node) continue;
       const restWorld = node.getWorldQuaternion(new THREE.Quaternion());
-      this.ccRest.set(ccName, {
+      this.boneRest.set(boneName, {
         node,
         restLocalQuat: node.quaternion.clone(),
         restWorldQuat: restWorld.clone(),
@@ -596,7 +560,7 @@ export class Dancer {
         restPos: node.position.clone(),
       });
     }
-    this.hipRestWorldY = this.ccRest.get('CC_Base_Hip')?.node.getWorldPosition(new THREE.Vector3()).y ?? 1;
+    this.hipRestWorldY = this.boneRest.get('mixamorigHips')?.node.getWorldPosition(new THREE.Vector3()).y ?? 1;
 
     // Ground-Clamp vorbereiten: Füße + Zehen beobachten, Rest-Höhe merken
     this.model = model;
@@ -604,8 +568,8 @@ export class Dancer {
     this.groundBones = [
       this.mapped.get('foot.L')?.node,
       this.mapped.get('foot.R')?.node,
-      findShallowest('CC_Base_L_ToeBase'),
-      findShallowest('CC_Base_R_ToeBase'),
+      findShallowest('mixamorigLeftToeBase'),
+      findShallowest('mixamorigRightToeBase'),
     ].filter((n): n is THREE.Object3D => !!n);
     this.restFootY = this.lowestFootY();
 
@@ -640,57 +604,36 @@ export class Dancer {
   }
 
   /**
-   * Das FBX bringt keine Texturen mit (externe Dateien) — die Meshes bekommen
-   * ein eigenes Styling in Markenfarben (Just-Dance-Look).
+   * Der Avatar bringt sein eigenes Farbdesign mit (Materialfarben aus Blender,
+   * keine Texturen). CI-Regel: Grundfarbe exakt, Abdunkeln nur in 10%-Stufen —
+   * Cel-Shading mit den Stufen 100% / 90% / 80%. Voraussetzung dafür ist das
+   * Licht-Setup der Szene: EINE weiße Lichtquelle mit Intensität 1,0, dann ist
+   * die beleuchtete Stufe exakt der CI-Farbwert.
    */
   private applyMaterials(model: THREE.Group) {
-    // Just-Dance-Look: Cel-Shading mit hartem 3-Stufen-Verlauf statt
-    // realistischem Licht — flächige, knallige Farben mit Comic-Schattenkante.
     // (skinning: true ist bei three r128 Pflicht auf SkinnedMeshes — sonst
     // rendert die GPU die Bind-Pose, egal was die Bones machen.)
-    const gradient = new THREE.DataTexture(new Uint8Array([130, 215, 255]), 3, 1, THREE.LuminanceFormat);
+    // 3 Stufen: 80% (204), 90% (230), 100% (255)
+    const gradient = new THREE.DataTexture(new Uint8Array([204, 230, 255]), 3, 1, THREE.LuminanceFormat);
     gradient.minFilter = THREE.NearestFilter;
     gradient.magFilter = THREE.NearestFilter;
     gradient.generateMipmaps = false;
     gradient.needsUpdate = true;
-    const toon = (color: number) => new THREE.MeshToonMaterial({ color, gradientMap: gradient, skinning: true });
-
-    const skin = toon(0xf2f3f5); // fast weiß, nur ein Hauch Grau — Just-Dance-Haut
-    // Kopf unbeleuchtet & flach: ohne Shading sind Nase/Augen/Lippen unsichtbar,
-    // das modellierte Gesicht ist nicht mehr erkennbar (nur die Silhouette bleibt).
-    // Farbe = mittlerer Ton der beleuchteten Körperhaut (gemessen), damit sich
-    // das Gesicht von der weißen Outline absetzt
-    const skinFlat = new THREE.MeshBasicMaterial({ color: 0xd2d4d8, skinning: true });
-    const top = toon(0xe71d73); // BR3 Pink
-    const leggings = toon(0x2699d6); // BR3 Blau
-    const hair = toon(0xf9b233); // BR3 Orange — Just-Dance-Haarfarbe
-    // Overlay-Meshes (Tränenlinie, Augen-Schatten, Wimpern) brauchen Alpha-Maps,
-    // die wir nicht haben → unsichtbar schalten
-    const hidden = new THREE.MeshBasicMaterial({ visible: false });
 
     model.traverse((o) => {
       const mesh = o as THREE.SkinnedMesh;
       if (!mesh.isSkinnedMesh) return;
-      switch (mesh.name) {
-        case 'CC_Base_Body':
-          // Material-Reihenfolge im FBX: Head, Body, Arm, Leg, Nails, Eyelash
-          mesh.material = [skinFlat, skin, skin, skin, skin, hidden];
-          break;
-        case 'Tanktop':
-          mesh.material = top;
-          break;
-        case 'ShortLeggings':
-          mesh.material = leggings;
-          break;
-        case 'Haircut':
-          mesh.material = hair;
-          break;
-        default:
-          // Kein Gesicht: Augen, Zähne, Zunge, TearLine, EyeOcclusion & Co.
-          // komplett aus — nur die blanke Kopfform bleibt
-          mesh.material = hidden;
-          mesh.castShadow = false;
-      }
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      const toonMats = mats.map((m) => {
+        const toon = new THREE.MeshToonMaterial({
+          color: (m as THREE.MeshPhongMaterial).color ?? new THREE.Color(0xffffff),
+          gradientMap: gradient,
+          skinning: true,
+        });
+        toon.name = m.name;
+        return toon;
+      });
+      mesh.material = Array.isArray(mesh.material) ? toonMats : toonMats[0];
     });
   }
 
@@ -768,11 +711,11 @@ export class Dancer {
   private bakeClip(src: THREE.Group, clip: THREE.AnimationClip, name: string, bpm: number): BakedClip | null {
     src.updateWorldMatrix(true, true);
 
-    // Paare (Mixamo-Bone, CC-Rest) einsammeln — Mixamo-Rest = T-Pose vor dem Abspielen
-    const pairs: Array<{ mix: THREE.Object3D; mixRestWorldInv: THREE.Quaternion; rest: CcRest }> = [];
-    for (const [mixName, ccName] of Object.entries(MIX_TO_CC)) {
+    // Paare (Clip-Bone, Modell-Rest) einsammeln — Clip-Rest = T-Pose vor dem Abspielen
+    const pairs: Array<{ mix: THREE.Object3D; mixRestWorldInv: THREE.Quaternion; rest: BoneRest }> = [];
+    for (const [mixName, boneName] of Object.entries(CLIP_BONE_MAP)) {
       const mix = THREE.PropertyBinding.findNode(src, mixName) as THREE.Object3D | null;
-      const rest = this.ccRest.get(ccName);
+      const rest = this.boneRest.get(boneName);
       if (!mix || !rest) continue;
       pairs.push({
         mix,
@@ -796,7 +739,7 @@ export class Dancer {
     const deltas = pairs.map(() => new THREE.Quaternion());
 
     const mixHips = THREE.PropertyBinding.findNode(src, 'mixamorigHips') as THREE.Object3D | null;
-    const hipRest = this.ccRest.get('CC_Base_Hip');
+    const hipRest = this.boneRest.get('mixamorigHips');
     if (!mixHips || !hipRest) return null;
     const mixHipsRestPos = mixHips.getWorldPosition(new THREE.Vector3());
     // Positions-Maßstab: Hüfthöhen-Verhältnis (Mixamo-cm → CC-Welt-Meter)
@@ -930,7 +873,7 @@ export class Dancer {
       if (mix >= 1) tr.rest.node.quaternion.copy(Dancer.qSampleA);
       else tr.rest.node.quaternion.slerp(Dancer.qSampleA, mix);
     }
-    const hip = this.ccRest.get('CC_Base_Hip');
+    const hip = this.boneRest.get('mixamorigHips');
     if (hip) {
       Dancer.vOff.set(
         THREE.MathUtils.lerp(clip.hipsPos[i0 * 3], clip.hipsPos[i1 * 3], a),
@@ -975,6 +918,26 @@ export class Dancer {
     this.applyGrounding(dt);
   }
 
+  /** Zufalls-„Flavor" des aktuellen Move-Blocks: Größe, Seite, Stil-Varianten */
+  private flavor = { amp: 1, mir: 1, v1: 0.5, v2: 0.5 };
+
+  /** Pro Move-Block neu würfeln — kein 8-Beat-Block tanzt wie der vorige */
+  private rollFlavor() {
+    this.flavor = {
+      amp: 0.95 + 0.35 * Math.random(),
+      mir: Math.random() < 0.5 ? 1 : -1,
+      v1: Math.random(),
+      v2: Math.random(),
+    };
+  }
+
+  /** Bestimmten Move fest anwählen (Pose-Review im Operator-Panel) */
+  setMove(name: string) {
+    const i = MOVES.findIndex((m) => m.name === name);
+    if (i >= 0) this.moveIndex = i;
+    this.rollFlavor();
+  }
+
   /** Zufälliger anderer Move (nie derselbe zweimal hintereinander) */
   nextMove() {
     if (this.clips.length > 1) {
@@ -997,6 +960,7 @@ export class Dancer {
       n = Math.floor(Math.random() * MOVES.length);
     } while (n === this.moveIndex);
     this.moveIndex = n;
+    this.rollFlavor();
   }
 
   /** Pose für den aktuellen Frame; k=0 → ruhiges Atmen (Idle) */
@@ -1012,9 +976,18 @@ export class Dancer {
     this.resetDummies();
 
     if (c.k > 0) {
+      // Block-Flavor einmischen: Größe, Spiegelung, Varianten-Würfel — plus
+      // Akzent auf der „1" jedes 4er-Takts (Tänzer betonen die Eins)
+      const f = this.flavor;
+      const accBase = c.beatCount % 4 === 0 ? 1 : c.beatCount % 4 === 2 ? 0.35 : 0;
+      c.k = Math.min(1.45, c.k * f.amp * (1 + 0.15 * accBase * c.dip));
+      c.dir *= f.mir;
+      c.v1 = f.v1;
+      c.v2 = f.v2;
+      c.acc = accBase;
       MOVES[this.moveIndex].fn(this.dummies, c);
       this.anchorLegs();
-      this.addHumanNoise(nowS, 0.05 * c.k);
+      this.addHumanNoise(nowS, 0.075 * c.k);
     } else {
       const idle = Math.sin(nowS * 1.2);
       this.dummies.hips.position.y += 0.01 * idle;
@@ -1056,6 +1029,7 @@ export class Dancer {
   private addHumanNoise(t: number, a: number) {
     const d = this.dummies;
     const n = (f: number, ph: number) => Math.sin(t * f + ph) * Math.sin(t * f * 0.31 + ph * 1.7);
+    d.head.rotation.x += a * 0.8 * n(1.5, 2.4);
     d.head.rotation.y += a * 1.2 * n(1.9, 1.0);
     d.head.rotation.z += a * 0.6 * n(2.3, 4.0);
     d.chest.rotation.y += a * n(1.3, 2.0);
@@ -1125,8 +1099,12 @@ export class Dancer {
       const dummy = this.dummies[name];
 
       // Gesamtrotation in Welt-Achsen: erst Grundhaltung, dann Move obendrauf
+      const remap = AXIS_REMAP[name];
       const fix = AXIS_FIX[name];
-      if (fix) {
+      if (remap) {
+        remap(dummy.rotation, Dancer.eFixed);
+        Dancer.qMove.setFromEuler(Dancer.eFixed);
+      } else if (fix) {
         Dancer.eFixed.set(dummy.rotation.x * fix[0], dummy.rotation.y * fix[1], dummy.rotation.z * fix[2]);
         Dancer.qMove.setFromEuler(Dancer.eFixed);
       } else {

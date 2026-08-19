@@ -13,6 +13,8 @@ interface Tick {
   conf: number;
   manual: boolean;
   move: string;
+  moves: string[];
+  lockedMove: string | null;
 }
 
 const STYLE = `
@@ -35,6 +37,7 @@ const STYLE = `
   .gr-bpm-num { font-family: var(--font-mono); font-size: 34px; font-weight: 700; color: var(--primary); font-variant-numeric: tabular-nums; }
   .gr-bpm-num.searching { color: var(--ink-dim); }
   .gr-bpm-sub { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-dim); }
+  .gr-move-now { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; color: var(--ink-dim); }
   .gr-meta { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 6px; font-family: var(--font-mono); font-size: 11px; color: var(--ink-dim); }
   .gr-meta .gr-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .gr-wave { position: relative; height: 52px; background: #101218; border: 1px solid var(--panel-edge); border-radius: 4px; cursor: pointer; touch-action: none; }
@@ -64,6 +67,14 @@ export function buildGroovePanel(container: HTMLElement, api: OperatorPanelApi):
         <span class="gr-bpm-sub" data-id="sub">warte auf Beat</span>
       </div>
     </div>
+    <div class="gr-row">
+      <select data-id="move" title="Pose fest anwählen — Auto = Wechsel alle 8 Beats">
+        <option value="">Pose: Auto-Rotation</option>
+      </select>
+      <button data-id="prevmove" title="Vorherige Pose">◀</button>
+      <button data-id="nextmove" title="Nächste Pose">▶</button>
+      <span class="gr-move-now" data-id="movenow">—</span>
+    </div>
     <div class="gr-meta">
       <span class="gr-name" data-id="name">Kein Track geladen — Audiodatei laden oder Mikro starten.</span>
       <span data-id="time">0:00 / 0:00</span>
@@ -92,6 +103,22 @@ export function buildGroovePanel(container: HTMLElement, api: OperatorPanelApi):
   /** kurzzeitiger Hinweistext, überdeckt die Track-Zeile */
   let hint: string | null = null;
   let hintUntil = 0;
+
+  /* ---------- Pose-Anwahl (Review) ---------- */
+  const moveSel = q('move') as unknown as HTMLSelectElement;
+  const moveNow = q('movenow');
+  let moveNames: string[] = [];
+  const sendMove = () => api.send({ cmd: 'move', name: moveSel.value });
+  moveSel.onchange = sendMove;
+  const stepMove = (d: number) => {
+    if (!moveNames.length) return;
+    const cur = moveSel.value ? moveNames.indexOf(moveSel.value) : -1;
+    const n = cur < 0 ? (d > 0 ? 0 : moveNames.length - 1) : (cur + d + moveNames.length) % moveNames.length;
+    moveSel.value = moveNames[n];
+    sendMove();
+  };
+  q('prevmove').onclick = () => stepMove(-1);
+  q('nextmove').onclick = () => stepMove(1);
 
   /* ---------- Transport ---------- */
   q('load').onclick = () => fileInput.click();
@@ -187,6 +214,19 @@ export function buildGroovePanel(container: HTMLElement, api: OperatorPanelApi):
   /* ---------- Live-Daten vom Spiel ---------- */
   function onTick(t: Tick) {
     last = t;
+
+    // Pose-Dropdown einmalig befüllen (Liste kommt mit jedem Tick mit)
+    if (t.moves && t.moves.length !== moveNames.length) {
+      moveNames = t.moves;
+      for (const name of moveNames) {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        moveSel.appendChild(opt);
+      }
+    }
+    moveNow.textContent = t.move;
+    if (document.activeElement !== moveSel) moveSel.value = t.lockedMove ?? '';
     btnPlay.disabled = !t.hasTrack || t.usingMic;
     btnPlay.textContent = t.playing && !t.usingMic ? 'Pause' : 'Play';
     btnMic.textContent = t.usingMic ? 'Mikro aus' : 'Mikro';
