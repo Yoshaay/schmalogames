@@ -42,6 +42,10 @@ interface RoleState {
   alpha: number;
 }
 
+/** Anker des Lyric-Blocks: unten am Bildschirmrand statt Bildmitte
+ *  (enterBelow/exitDown laufen damit komplett aus dem Bild) */
+const ANCHOR_Y = VIEW_H - 160;
+
 const ROLES: Record<Role, RoleState> = {
   current: { size: 76, y: -105, bright: 1, alpha: 1 },
   next: { size: 32, y: 78, bright: 0.45, alpha: 1 },
@@ -374,7 +378,7 @@ export class Schmalaoke implements Game {
     if (row) rows.push(row);
 
     const lineH = state.size * 1.2;
-    const cy = VIEW_H / 2 + state.y - ((rows.length - 1) * lineH) / 2;
+    const cy = ANCHOR_Y + state.y - ((rows.length - 1) * lineH) / 2;
     rows.forEach((r, i) => g.fillText(r, VIEW_W / 2, cy + i * lineH));
     g.restore();
   }
