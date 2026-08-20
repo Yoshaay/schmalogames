@@ -301,38 +301,6 @@ const MOVES: Array<{ name: string; fn(b: MoveBones, c: MoveCtx): void }> = [
     },
   },
   {
-    name: 'LASSO', // ein Arm kreist über dem Kopf, Seite wechselt alle 4 Beats
-    fn(b, c) {
-      const { k, p, dip } = c;
-      const v2 = c.v2 ?? 0.75;
-      // Schwungarm wechselt alle 4 Beats die Seite (v2 bestimmt die Startseite);
-      // die Pose-Trägheit blendet den Wechsel weich über
-      const startL = v2 < 0.5;
-      const useL = Math.floor(c.beatCount / 4) % 2 === 0 ? startL : !startL;
-      const A = useL ? 'L' : 'R';
-      const H = useL ? 'R' : 'L';
-      const sxA = useL ? 1 : -1;
-      const a = (c.beatCount + p) * Math.PI; // eine Umdrehung alle 2 Beats
-      // großer Kreis als präzedierende Kippung: vor/zurück (x) + seitlich (z)
-      // im Wechsel — die Hand beschreibt einen weiten Kegel. KEIN rotation.y:
-      // am gehobenen Arm wäre das die Drehung um die eigene Längsachse
-      b['upper_arm.' + A].rotation.z = sxA * 2.35 * k + 0.55 * k * Math.sin(a);
-      b['upper_arm.' + A].rotation.x = 0.55 * k * Math.cos(a);
-      b['forearm.' + A].rotation.x = -0.6 - 0.35 * Math.sin(a);
-      // andere Hand in die Hüfte
-      b['upper_arm.' + H].rotation.z = -sxA * 0.85;
-      b['forearm.' + H].rotation.x = -1.9;
-      b['forearm.' + H].rotation.z = sxA * 0.6;
-      b.hips.rotation.y = 0.22 * k * Math.sin(a);
-      b.hips.rotation.z = 0.08 * k * Math.cos(a);
-      b.chest.rotation.y = -0.12 * k * Math.sin(a);
-      b.hips.position.y -= 0.09 * k * dip;
-      b.head.rotation.z = sxA * 0.08 * k;
-      b.head.rotation.y = 0.1 * k * Math.sin(a); // Blick folgt dem Schwung
-      bendKnees(b, 0.45 * k * dip);
-    },
-  },
-  {
     name: 'KNEE SWING', // Charleston: tief in den Knien, Knie öffnen/schließen
     fn(b, c) {
       const { k, p, dip } = c;
@@ -409,10 +377,75 @@ const MOVES: Array<{ name: string; fn(b: MoveBones, c: MoveCtx): void }> = [
       bendKnees(b, (0.4 + 0.1 * acc) * k * dip);
     },
   },
+  {
+    name: 'MAWN-LOWER', // Rasenmäher anreißen: links unten am Holm, rechts zieht das Starterseil hoch
+    fn(b, c) {
+      const { k, p, dip, dir, s1, nod } = c;
+      const acc = c.acc ?? 0;
+      const sm = (t: number) => {
+        const u = Math.min(Math.max(t, 0), 1);
+        return u * u * (3 - 2 * u);
+      };
+      // Ein Anriss dauert 4 Beats: Beat 1–2 grooven runter zum Griff am
+      // Boden, der Anriss KNALLT genau auf Beat 3 (cyc 0.5), danach federt
+      // der Arm locker aus. Unter allem läuft der Beat-Bounce durch —
+      // der Move darf nie stehen, sonst wirkt er roboterhaft.
+      const cyc = ((c.beatCount % 4) + p) / 4;
+      const down = cyc < 0.375 ? sm(cyc / 0.375) : cyc < 0.5 ? 1 - sm((cyc - 0.375) / 0.125) : 0;
+      const pull = cyc < 0.375 ? 0 : cyc < 0.5 ? sm((cyc - 0.375) / 0.125) : 1 - sm((cyc - 0.5) / 0.3);
+      // Nachschwung: der Zugarm pendelt nach dem Anriss zweimal locker aus
+      const wob = cyc >= 0.5 ? 0.25 * Math.sin((cyc - 0.5) * Math.PI * 8) * (1 - sm((cyc - 0.5) / 0.5)) : 0;
+      // Po-Wackeln in der Beuge: eine volle Welle pro Beat
+      const wig = down * Math.sin((c.beatCount + p) * Math.PI * 2);
+      // Zugarm wechselt nach jedem Anriss die Seite; die Pose-Trägheit
+      // blendet den Wechsel weich über
+      const pullL = Math.floor(c.beatCount / 4) % 2 === 1;
+      const P = pullL ? 'L' : 'R'; // Zugarm (Starterseil)
+      const H = pullL ? 'R' : 'L'; // Holm-Hand
+      const sxP = pullL ? 1 : -1;
+      // Groove-Basis: Bounce auf jedem Beat, Hüfte wackelt in der Beuge
+      // und pendelt oben seitlich mit
+      b.hips.position.y -= k * (0.08 * dip + 0.3 * down + 0.02 * acc);
+      b.hips.rotation.z = k * (0.12 * wig + 0.08 * dip * dir * (1 - down));
+      // Eindrehen: in der Beuge drehen Hüfte und Oberkörper zur Zugarm-Seite
+      // ein, damit die Hand den Griff vor der KÖRPERMITTE fasst — der Anriss
+      // dreht dann beides in die Gegenrichtung auf (Oberkörper führt)
+      b.hips.rotation.y = -sxP * 0.18 * k * down + sxP * 0.1 * k * pull + 0.08 * k * s1 * dir * (1 - down - pull);
+      // kräftig vorlehnen: die Zughand muss VOR den Knien greifen,
+      // sonst schneidet der Arm auf dem Weg zur Mitte durch die Beine
+      b.spine.rotation.x = k * (0.25 + 0.8 * down - 0.15 * pull + 0.05 * dip);
+      b.chest.rotation.x = 0.45 * k * down;
+      b.chest.rotation.y = -sxP * 0.32 * k * down + sxP * k * (0.08 + 0.35 * pull) - 0.1 * k * s1 * dir * (1 - down - pull);
+      b.chest.rotation.z = -0.08 * k * wig; // Schulter kontert das Wackeln
+      b.head.rotation.x = -k * (0.26 + 0.22 * down - 0.12 * pull) - 0.25 * k * nod;
+      b.head.rotation.y = -sxP * 0.1 * k * down + sxP * 0.18 * k * pull; // Blick folgt der Zughand
+      // Holm-Hand unten am Griff — pumpt den Holm im Takt statt still zu halten
+      b['upper_arm.' + H].rotation.x = -0.5 - 0.15 * k * down - 0.08 * k * dip;
+      b['upper_arm.' + H].rotation.z = -sxP * 0.3;
+      b['forearm.' + H].rotation.x = -0.4 - 0.15 * k * dip;
+      b['hand.' + H].rotation.x = -0.25;
+      // Zugarm: hängt in der Beuge fast senkrecht runter (mit dem
+      // vorgeklappten Rumpf reicht das bis an den Boden), der Anriss reißt
+      // ihn hoch hinter die Schulter — danach schwingt er nach statt zu stoppen
+      // Zugarm weit nach VORN-unten schwingen — der Rumpf ist so weit
+      // vorgeklappt, dass "senkrecht hängen" effektiv hinter den Knien
+      // landet. Werte per Headless-Messung bestimmt: Hand am tiefsten
+      // Punkt bei x≈0 (Körpermitte), z≈0.46 — gut 13 cm VOR der Knieebene
+      b['upper_arm.' + P].rotation.x = -0.25 - 1.5 * k * down + k * (1.35 * pull + wob);
+      b['upper_arm.' + P].rotation.z = sxP * (0.25 - 0.15 * down + 0.65 * k * pull);
+      b['forearm.' + P].rotation.x = -0.15 - 0.2 * down - k * (0.95 * pull + 0.5 * Math.max(0, wob));
+      b['hand.' + P].rotation.x = -0.2 * down + 0.35 * k * pull;
+      // Knie federn durchgehend, in der Beuge tief in die Hocke
+      bendKnees(b, k * (0.3 + 0.45 * down + 0.15 * dip + 0.08 * acc));
+    },
+  },
 ];
 
 /** Namen aller prozeduralen Moves — fürs Operator-Panel (Pose-Anwahl) */
 export const MOVE_NAMES = MOVES.map((m) => m.name);
+
+/** Nur für Geometrie-Tests (headless): Zugriff auf die Move-Funktionen */
+export const MOVES_FOR_TEST = MOVES;
 
 /** Retarget-Ziel: ein CC-Bone samt eingefrorener Rest-Pose */
 interface MappedBone {
@@ -611,6 +644,17 @@ export class Dancer {
    * die beleuchtete Stufe exakt der CI-Farbwert.
    */
   private applyMaterials(model: THREE.Group) {
+    // CI-Sollwerte pro Material. Blender exportiert die Farben linear und
+    // three r128 zeigt sie ohne Output-Encoding roh an (dadurch zu dunkel/satt)
+    // — deshalb hier die exakten sRGB-Hexwerte statt der FBX-Werte.
+    const ciColors: Record<string, number> = {
+      M_Top: 0xf9b233,
+      M_Pants: 0xf9b233,
+      M_Hands: 0xe71d73,
+      M_KneeWarmer: 0xe71d73,
+      M_AnkleWarmer: 0x2699d6,
+    };
+
     // (skinning: true ist bei three r128 Pflicht auf SkinnedMeshes — sonst
     // rendert die GPU die Bind-Pose, egal was die Bones machen.)
     // 3 Stufen: 80% (204), 90% (230), 100% (255)
@@ -626,7 +670,9 @@ export class Dancer {
       const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
       const toonMats = mats.map((m) => {
         const toon = new THREE.MeshToonMaterial({
-          color: (m as THREE.MeshPhongMaterial).color ?? new THREE.Color(0xffffff),
+          color: ciColors[m.name] !== undefined
+            ? new THREE.Color(ciColors[m.name])
+            : (m as THREE.MeshPhongMaterial).color ?? new THREE.Color(0xffffff),
           gradientMap: gradient,
           skinning: true,
         });
