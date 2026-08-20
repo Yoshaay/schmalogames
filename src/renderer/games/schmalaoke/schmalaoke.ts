@@ -2,9 +2,7 @@ import { Game, GameContext, VIEW_W, VIEW_H } from '../../core/game';
 import { BeatEngine } from '../../core/beat';
 import { LRCParser } from './lrc-parser';
 import logoUrl from './assets/logo2.png';
-import bgAUrl from './assets/Artboard 1 copy 2.png';
-import bgBUrl from './assets/Artboard 1 copy 3.png';
-import bgCUrl from './assets/Artboard 1 copy 4.png';
+import bgUrl from './assets/KaraokeBackground.png';
 
 /**
  * Schmalaoke — Karaoke-Lyrics-Player als Schmalogames-Slot.
@@ -18,7 +16,7 @@ import bgCUrl from './assets/Artboard 1 copy 4.png';
 
 /** Nachrichten vom Operator-Panel */
 interface Cmd {
-  cmd: 'song' | 'space' | 'prev' | 'nextsong' | 'restart' | 'jump' | 'reset' | 'auto' | 'micdev' | 'hello' | 'bpmreset' | 'bg';
+  cmd: 'song' | 'space' | 'prev' | 'nextsong' | 'restart' | 'jump' | 'reset' | 'auto' | 'micdev' | 'hello' | 'bpmreset';
   name?: string;
   content?: string;
   index?: number;
@@ -41,25 +39,24 @@ type Role = 'current' | 'next' | 'exitUp' | 'enterBelow' | 'exitDown' | 'enterAb
 interface RoleState {
   size: number; // Schriftgröße px
   y: number; // Offset zur Bildmitte
-  bright: number; // 0..1 → Grauwert (1 = weiß, 0.45 ≈ #727272)
   alpha: number;
 }
 
 /** Anker des Lyric-Blocks: unten am Bildschirmrand statt Bildmitte
  *  (enterBelow/exitDown laufen damit komplett aus dem Bild) */
-const ANCHOR_Y = VIEW_H - 120;
+const ANCHOR_Y = VIEW_H - 112;
 
 /** Testweise: Vorschauzeile (next) nicht zeichnen — nur die aktuelle Zeile
  *  auf der grünen Fläche der Test-Hintergründe */
 const SHOW_NEXT = false;
 
 const ROLES: Record<Role, RoleState> = {
-  current: { size: 76, y: 0, bright: 1, alpha: 1 },
-  next: { size: 32, y: 78, bright: 0.45, alpha: 1 },
-  exitUp: { size: 32, y: -300, bright: 0.45, alpha: 0 },
-  enterBelow: { size: 32, y: 185, bright: 0.45, alpha: 0 },
-  exitDown: { size: 32, y: 300, bright: 0.45, alpha: 0 },
-  enterAbove: { size: 76, y: -300, bright: 1, alpha: 0 },
+  current: { size: 76, y: 0, alpha: 1 },
+  next: { size: 32, y: 78, alpha: 1 },
+  exitUp: { size: 32, y: -300, alpha: 0 },
+  enterBelow: { size: 32, y: 185, alpha: 0 },
+  exitDown: { size: 32, y: 300, alpha: 0 },
+  enterAbove: { size: 76, y: -300, alpha: 0 },
 };
 
 const ANIM_S = 0.4; // 400ms wie im Original
@@ -86,10 +83,12 @@ export class Schmalaoke implements Game {
   private logo = new Image();
   private time = 0;
 
-  /** Hintergrund-Test: helle CI-Artboards statt schwarzer Wall,
-   *  pro Song wird durchgewechselt */
-  private bgs: HTMLImageElement[] = [];
-  private bgIndex = 0;
+  /** CI-Hintergrund (transparentes Overlay über schwarzer Basis) */
+  private bg = new Image();
+  /** Offscreen-Ebene für die Lyrics: wird mit dem Alpha-Kanal des
+   *  Hintergrunds maskiert, damit die Schrift exakt an der Kante der
+   *  farbigen Flächen abgeschnitten wird und nie ins Schwarz ragt */
+  private lyricLayer = document.createElement('canvas');
 
   /* ---------- Song-State (portiert aus main.js) ---------- */
   private parser = new LRCParser();
@@ -129,11 +128,7 @@ export class Schmalaoke implements Game {
   init(ctx: GameContext) {
     this.ctx = ctx;
     this.logo.src = logoUrl;
-    this.bgs = [bgAUrl, bgBUrl, bgCUrl].map((url) => {
-      const img = new Image();
-      img.src = url;
-      return img;
-    });
+    this.bg.src = bgUrl;
     this.engine.onBeat = () => this.handleDetectedBeat();
     navigator.mediaDevices.addEventListener('devicechange', this.onDeviceChange);
   }
@@ -184,10 +179,6 @@ export class Schmalaoke implements Game {
         this.engine.reset();
         this.currentBeatInLine = 0;
         this.beatCooldownUntil = 0;
-        break;
-      case 'bg':
-        // Test-Hintergrund manuell durchschalten
-        if (this.bgs.length) this.bgIndex = (this.bgIndex + 1) % this.bgs.length;
         break;
       case 'micdev':
         this.micDeviceId = msg.id && msg.id !== 'default' ? msg.id : null;
@@ -330,14 +321,13 @@ export class Schmalaoke implements Game {
   }
 
   render(g: CanvasRenderingContext2D) {
-    // Testweise: helle CI-Artboards als Wall-Hintergrund; solange das Bild
-    // noch lädt, bleibt die Wall schwarz (wie das Original)
-    const bg = this.bgs[this.bgIndex];
-    if (bg?.complete && bg.naturalWidth) {
-      g.drawImage(bg, 0, 0, VIEW_W, VIEW_H);
-    } else {
-      g.fillStyle = '#000000';
-      g.fillRect(0, 0, VIEW_W, VIEW_H);
+    // Grundfläche immer schwarz füllen — der CI-Hintergrund ist ein
+    // transparentes Overlay (RGBA), ohne Basis schiene der letzte Frame
+    // des vorherigen Spiels durch
+    g.fillStyle = '#000000';
+    g.fillRect(0, 0, VIEW_W, VIEW_H);
+    if (this.bg.complete && this.bg.naturalWidth) {
+      g.drawImage(this.bg, 0, 0, VIEW_W, VIEW_H);
     }
 
     if (this.errorText) {
@@ -362,6 +352,22 @@ export class Schmalaoke implements Game {
       if (t < 0) return true; // Phase 2 wartet noch — nicht zeichnen
       return !(s.transient && t >= 1);
     });
+
+    // Lyrics auf die Offscreen-Ebene zeichnen und mit dem Alpha-Kanal des
+    // Hintergrunds ausstanzen (destination-in): die Schrift erscheint nur
+    // auf den deckenden Farbflächen und wird an deren Kante pixelgenau
+    // abgeschnitten. Ohne geladenen HG (Fallback schwarz) direkt zeichnen —
+    // die Maske würde sonst alles wegstanzen.
+    const hasBg = this.bg.complete && !!this.bg.naturalWidth;
+    let lg = g;
+    if (hasBg) {
+      if (this.lyricLayer.width !== VIEW_W) {
+        this.lyricLayer.width = VIEW_W;
+        this.lyricLayer.height = VIEW_H;
+      }
+      lg = this.lyricLayer.getContext('2d')!;
+      lg.clearRect(0, 0, VIEW_W, VIEW_H);
+    }
     for (const s of this.sprites) {
       // Next-Zeile ausgeblendet: alles überspringen, was in der Vorschau-
       // Position endet (next selbst und die unten rauslaufende exitDown)
@@ -373,10 +379,15 @@ export class Schmalaoke implements Game {
       const state: RoleState = {
         size: a.size + (b.size - a.size) * t,
         y: a.y + (b.y - a.y) * t,
-        bright: a.bright + (b.bright - a.bright) * t,
         alpha: a.alpha + (b.alpha - a.alpha) * t,
       };
-      this.drawLine(g, s.text, state, state.alpha);
+      this.drawLine(lg, s.text, state, state.alpha);
+    }
+    if (hasBg && lg !== g) {
+      lg.globalCompositeOperation = 'destination-in';
+      lg.drawImage(this.bg, 0, 0, VIEW_W, VIEW_H);
+      lg.globalCompositeOperation = 'source-over';
+      g.drawImage(this.lyricLayer, 0, 0);
     }
   }
 
@@ -385,8 +396,8 @@ export class Schmalaoke implements Game {
     if (!text || alpha <= 0.01) return;
     g.save();
     g.globalAlpha = alpha;
-    const v = Math.round(state.bright * 255);
-    g.fillStyle = `rgb(${v}, ${v}, ${v})`;
+    // Lyrics immer weiß — keine Grau-Abstufung, keine Farbanimation
+    g.fillStyle = '#ffffff';
     g.font = `400 ${Math.round(state.size)}px 'TheSans', system-ui, sans-serif`;
     g.textAlign = 'center';
     g.textBaseline = 'middle';
