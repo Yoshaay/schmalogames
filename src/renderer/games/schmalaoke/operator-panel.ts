@@ -171,6 +171,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
             <button data-id="restart" title="Song von vorn — Taste Home">↺ Neustart</button>
             <button data-id="next" title="Taste N">⏭ Nächster Song</button>
           </div>
+          <button data-id="bg" class="ka-btn-wide" title="Test-Hintergrund durchschalten (3 Varianten)">🖼 Hintergrund wechseln</button>
           <div class="ka-head" title="Beats zählen die Zeilen weiter — braucht &lt;N&gt;-Tags in der LRC">Auto-Advance · Beat-Sync</div>
           <button data-id="auto" class="ka-btn-wide"><span class="ka-beat" data-id="beatdot"></span><span data-id="autolabel">Auto-Advance</span></button>
           <div class="ka-row">
@@ -451,6 +452,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
   }
 
   q('restart').onclick = () => api.send({ cmd: 'restart' });
+  q('bg').onclick = () => api.send({ cmd: 'bg' });
 
   /* ---------- Auto-Advance ---------- */
   let autoOn = false;

@@ -2,6 +2,9 @@ import { Game, GameContext, VIEW_W, VIEW_H } from '../../core/game';
 import { BeatEngine } from '../../core/beat';
 import { LRCParser } from './lrc-parser';
 import logoUrl from './assets/logo2.png';
+import bgAUrl from './assets/Artboard 1 copy 2.png';
+import bgBUrl from './assets/Artboard 1 copy 3.png';
+import bgCUrl from './assets/Artboard 1 copy 4.png';
 
 /**
  * Schmalaoke — Karaoke-Lyrics-Player als Schmalogames-Slot.
@@ -15,7 +18,7 @@ import logoUrl from './assets/logo2.png';
 
 /** Nachrichten vom Operator-Panel */
 interface Cmd {
-  cmd: 'song' | 'space' | 'prev' | 'nextsong' | 'restart' | 'jump' | 'reset' | 'auto' | 'micdev' | 'hello' | 'bpmreset';
+  cmd: 'song' | 'space' | 'prev' | 'nextsong' | 'restart' | 'jump' | 'reset' | 'auto' | 'micdev' | 'hello' | 'bpmreset' | 'bg';
   name?: string;
   content?: string;
   index?: number;
@@ -44,10 +47,14 @@ interface RoleState {
 
 /** Anker des Lyric-Blocks: unten am Bildschirmrand statt Bildmitte
  *  (enterBelow/exitDown laufen damit komplett aus dem Bild) */
-const ANCHOR_Y = VIEW_H - 160;
+const ANCHOR_Y = VIEW_H - 120;
+
+/** Testweise: Vorschauzeile (next) nicht zeichnen — nur die aktuelle Zeile
+ *  auf der grünen Fläche der Test-Hintergründe */
+const SHOW_NEXT = false;
 
 const ROLES: Record<Role, RoleState> = {
-  current: { size: 76, y: -105, bright: 1, alpha: 1 },
+  current: { size: 76, y: 0, bright: 1, alpha: 1 },
   next: { size: 32, y: 78, bright: 0.45, alpha: 1 },
   exitUp: { size: 32, y: -300, bright: 0.45, alpha: 0 },
   enterBelow: { size: 32, y: 185, bright: 0.45, alpha: 0 },
@@ -78,6 +85,11 @@ export class Schmalaoke implements Game {
   private ctx: GameContext | null = null;
   private logo = new Image();
   private time = 0;
+
+  /** Hintergrund-Test: helle CI-Artboards statt schwarzer Wall,
+   *  pro Song wird durchgewechselt */
+  private bgs: HTMLImageElement[] = [];
+  private bgIndex = 0;
 
   /* ---------- Song-State (portiert aus main.js) ---------- */
   private parser = new LRCParser();
@@ -117,6 +129,11 @@ export class Schmalaoke implements Game {
   init(ctx: GameContext) {
     this.ctx = ctx;
     this.logo.src = logoUrl;
+    this.bgs = [bgAUrl, bgBUrl, bgCUrl].map((url) => {
+      const img = new Image();
+      img.src = url;
+      return img;
+    });
     this.engine.onBeat = () => this.handleDetectedBeat();
     navigator.mediaDevices.addEventListener('devicechange', this.onDeviceChange);
   }
@@ -167,6 +184,10 @@ export class Schmalaoke implements Game {
         this.engine.reset();
         this.currentBeatInLine = 0;
         this.beatCooldownUntil = 0;
+        break;
+      case 'bg':
+        // Test-Hintergrund manuell durchschalten
+        if (this.bgs.length) this.bgIndex = (this.bgIndex + 1) % this.bgs.length;
         break;
       case 'micdev':
         this.micDeviceId = msg.id && msg.id !== 'default' ? msg.id : null;
@@ -309,9 +330,15 @@ export class Schmalaoke implements Game {
   }
 
   render(g: CanvasRenderingContext2D) {
-    // Karaoke-Wall ist schlicht schwarz (wie das Original)
-    g.fillStyle = '#000000';
-    g.fillRect(0, 0, VIEW_W, VIEW_H);
+    // Testweise: helle CI-Artboards als Wall-Hintergrund; solange das Bild
+    // noch lädt, bleibt die Wall schwarz (wie das Original)
+    const bg = this.bgs[this.bgIndex];
+    if (bg?.complete && bg.naturalWidth) {
+      g.drawImage(bg, 0, 0, VIEW_W, VIEW_H);
+    } else {
+      g.fillStyle = '#000000';
+      g.fillRect(0, 0, VIEW_W, VIEW_H);
+    }
 
     if (this.errorText) {
       this.drawLine(g, this.errorText, ROLES.current, 1);
@@ -336,6 +363,9 @@ export class Schmalaoke implements Game {
       return !(s.transient && t >= 1);
     });
     for (const s of this.sprites) {
+      // Next-Zeile ausgeblendet: alles überspringen, was in der Vorschau-
+      // Position endet (next selbst und die unten rauslaufende exitDown)
+      if (!SHOW_NEXT && (s.to === 'next' || s.to === 'exitDown')) continue;
       const t = ease((this.time - s.t0) / ANIM_S);
       if ((this.time - s.t0) / ANIM_S < 0) continue;
       const a = ROLES[s.from];
