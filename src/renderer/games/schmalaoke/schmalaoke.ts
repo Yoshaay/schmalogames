@@ -1,8 +1,7 @@
 import { Game, GameContext, VIEW_W, VIEW_H } from '../../core/game';
 import { BeatEngine } from '../../core/beat';
 import { LRCParser } from './lrc-parser';
-import logoUrl from './assets/logo2.png';
-import bgUrl from './assets/KaraokeBackground.png';
+import bgUrl from './assets/KaraokeBG_hoch.png';
 
 /**
  * Schmalaoke — Karaoke-Lyrics-Player als Schmalogames-Slot.
@@ -34,29 +33,70 @@ const LOCK_CONF = 0.3;
 
 /* ---------- Conveyor-Animation (aus player.css, skaliert auf 1080p) ---------- */
 
-type Role = 'current' | 'next' | 'exitUp' | 'enterBelow' | 'exitDown' | 'enterAbove';
+type Role = 'current' | 'exitUp' | 'enterBelow' | 'exitDown' | 'enterAbove';
 
 interface RoleState {
-  size: number; // Schriftgröße px
   y: number; // Offset zur Bildmitte
   alpha: number;
 }
 
-/** Anker des Lyric-Blocks: unten am Bildschirmrand statt Bildmitte
- *  (enterBelow/exitDown laufen damit komplett aus dem Bild) */
-const ANCHOR_Y = VIEW_H - 112;
+/** Anker des Lyric-Blocks: die Farbfläche hängt oben an der Wall und
+ *  reicht bis y ≈ 253–343 runter. Der Anker sitzt knapp über der Spitze
+ *  des pinken Dreiecks (189, 122), der Text ist horizontal auf die
+ *  Bildmitte zentriert. */
+const ANCHOR_Y = 122;
 
-/** Testweise: Vorschauzeile (next) nicht zeichnen — nur die aktuelle Zeile
- *  auf der grünen Fläche der Test-Hintergründe */
-const SHOW_NEXT = false;
+/** Lyric-Layout: horizontal zentriert in der Farbfläche. EINE feste
+ *  Schriftgröße für alle Titel. Ab mehr als LYRIC_WRAP_CHARS Zeichen
+ *  bricht die Zeile um (an Wortgrenzen); der Block bleibt dabei mittig
+ *  auf dem Anker, rutscht also entsprechend hoch. Was trotzdem übersteht,
+ *  kappt die Clip-Maske. */
+const LYRIC_SIZE = 56;
+const LYRIC_WRAP_CHARS = 32;
+const LYRIC_X = VIEW_W / 2;
 
+/** Zeile an Wortgrenzen in Häppchen von max. LYRIC_WRAP_CHARS brechen */
+function wrapLyric(text: string): string[] {
+  if (text.length <= LYRIC_WRAP_CHARS) return [text];
+  const rows: string[] = [];
+  let row = '';
+  for (const word of text.split(' ')) {
+    const probe = row ? row + ' ' + word : word;
+    if (probe.length > LYRIC_WRAP_CHARS && row) {
+      rows.push(row);
+      row = word;
+    } else {
+      row = probe;
+    }
+  }
+  if (row) rows.push(row);
+  return rows;
+}
+
+/** Clip-Maske für die Lyrics: Polygon der Farbfläche oben, aus dem
+ *  aktuellen Asset (KaraokeBG_hoch, 641×1025) ausgemessen und in
+ *  View-Koordinaten umgerechnet (Cover-Faktor 1920/1025).
+ *  Die Schrift existiert nur innerhalb dieser Fläche — unabhängig vom
+ *  Alpha-Kanal des Hintergrunds, funktioniert also auch mit einem
+ *  volldeckenden (z. B. komplett grünen) Asset. */
+const LYRIC_CLIP: Array<[number, number]> = [
+  [0, 0],
+  [VIEW_W, 0],
+  [VIEW_W, 343], // rechte Kante der hellgrünen Fläche
+  [590, 253], // Knick Oliv/Hellgrün (flachster Punkt)
+  [47, 296], // Ende der steilen Pink-Kante
+  [0, 343], // linke Unterkante des pinken Dreiecks
+];
+
+/** Vertikaler Durchlauf (abwärts): Zeilen fliegen von oben aus dem Bild
+ *  rein und knapp unterhalb der Farbfläche raus (dort wischt die Clip-
+ *  Maske sie an der Unterkante weg). Kein Alpha-Fade. */
 const ROLES: Record<Role, RoleState> = {
-  current: { size: 76, y: 0, alpha: 1 },
-  next: { size: 32, y: 78, alpha: 1 },
-  exitUp: { size: 32, y: -300, alpha: 0 },
-  enterBelow: { size: 32, y: 185, alpha: 0 },
-  exitDown: { size: 32, y: 300, alpha: 0 },
-  enterAbove: { size: 76, y: -300, alpha: 0 },
+  current: { y: 0, alpha: 1 },
+  exitUp: { y: -320, alpha: 1 },
+  enterBelow: { y: 320, alpha: 1 },
+  exitDown: { y: 320, alpha: 1 },
+  enterAbove: { y: -320, alpha: 1 },
 };
 
 const ANIM_S = 0.4; // 400ms wie im Original
@@ -80,15 +120,10 @@ const ease = (t: number) => {
 
 export class Schmalaoke implements Game {
   private ctx: GameContext | null = null;
-  private logo = new Image();
   private time = 0;
 
   /** CI-Hintergrund (transparentes Overlay über schwarzer Basis) */
   private bg = new Image();
-  /** Offscreen-Ebene für die Lyrics: wird mit dem Alpha-Kanal des
-   *  Hintergrunds maskiert, damit die Schrift exakt an der Kante der
-   *  farbigen Flächen abgeschnitten wird und nie ins Schwarz ragt */
-  private lyricLayer = document.createElement('canvas');
 
   /* ---------- Song-State (portiert aus main.js) ---------- */
   private parser = new LRCParser();
@@ -127,7 +162,6 @@ export class Schmalaoke implements Game {
 
   init(ctx: GameContext) {
     this.ctx = ctx;
-    this.logo.src = logoUrl;
     this.bg.src = bgUrl;
     this.engine.onBeat = () => this.handleDetectedBeat();
     navigator.mediaDevices.addEventListener('devicechange', this.onDeviceChange);
@@ -321,13 +355,12 @@ export class Schmalaoke implements Game {
   }
 
   render(g: CanvasRenderingContext2D) {
-    // Grundfläche immer schwarz füllen — der CI-Hintergrund ist ein
-    // transparentes Overlay (RGBA), ohne Basis schiene der letzte Frame
-    // des vorherigen Spiels durch
-    g.fillStyle = '#000000';
-    g.fillRect(0, 0, VIEW_W, VIEW_H);
+    // KEINE schwarze Grundfüllung: alles außerhalb der Farbflächen bleibt
+    // echt transparent (Alpha), damit im Ü-Wagen ein Livefeed dahinter
+    // gelegt werden kann. Auf der Wall wirkt es weiter schwarz (Fenster-
+    // Hintergrund); der Host cleart den Canvas jeden Frame.
     if (this.bg.complete && this.bg.naturalWidth) {
-      g.drawImage(this.bg, 0, 0, VIEW_W, VIEW_H);
+      this.drawBg(g);
     }
 
     if (this.errorText) {
@@ -337,12 +370,7 @@ export class Schmalaoke implements Game {
 
     const showLyrics = this.lyricsModeStarted && !this.songEndedDisplayed;
     if (!showLyrics) {
-      // Ruhe-/Ready-/Ende-Zustand: Logo mittig
-      if (this.logo.complete && this.logo.naturalWidth) {
-        const w = Math.min(700, this.logo.naturalWidth);
-        const h = (w / this.logo.naturalWidth) * this.logo.naturalHeight;
-        g.drawImage(this.logo, (VIEW_W - w) / 2, (VIEW_H - h) / 2, w, h);
-      }
+      // Ruhe-/Ready-/Ende-Zustand: nur der Hintergrund, kein Logo
       return;
     }
 
@@ -353,74 +381,53 @@ export class Schmalaoke implements Game {
       return !(s.transient && t >= 1);
     });
 
-    // Lyrics auf die Offscreen-Ebene zeichnen und mit dem Alpha-Kanal des
-    // Hintergrunds ausstanzen (destination-in): die Schrift erscheint nur
-    // auf den deckenden Farbflächen und wird an deren Kante pixelgenau
-    // abgeschnitten. Ohne geladenen HG (Fallback schwarz) direkt zeichnen —
-    // die Maske würde sonst alles wegstanzen.
-    const hasBg = this.bg.complete && !!this.bg.naturalWidth;
-    let lg = g;
-    if (hasBg) {
-      if (this.lyricLayer.width !== VIEW_W) {
-        this.lyricLayer.width = VIEW_W;
-        this.lyricLayer.height = VIEW_H;
-      }
-      lg = this.lyricLayer.getContext('2d')!;
-      lg.clearRect(0, 0, VIEW_W, VIEW_H);
-    }
+    // Lyrics innerhalb der Clip-Maske zeichnen: die Schrift wird an der
+    // Polygon-Kante der Farbfläche pixelgenau abgeschnitten
+    g.save();
+    g.beginPath();
+    LYRIC_CLIP.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
+    g.closePath();
+    g.clip();
     for (const s of this.sprites) {
-      // Next-Zeile ausgeblendet: alles überspringen, was in der Vorschau-
-      // Position endet (next selbst und die unten rauslaufende exitDown)
-      if (!SHOW_NEXT && (s.to === 'next' || s.to === 'exitDown')) continue;
       const t = ease((this.time - s.t0) / ANIM_S);
-      if ((this.time - s.t0) / ANIM_S < 0) continue;
+      if ((this.time - s.t0) / ANIM_S < 0) continue; // Phase 2 wartet noch
       const a = ROLES[s.from];
       const b = ROLES[s.to];
       const state: RoleState = {
-        size: a.size + (b.size - a.size) * t,
         y: a.y + (b.y - a.y) * t,
         alpha: a.alpha + (b.alpha - a.alpha) * t,
       };
-      this.drawLine(lg, s.text, state, state.alpha);
+      this.drawLine(g, s.text, state, state.alpha);
     }
-    if (hasBg && lg !== g) {
-      lg.globalCompositeOperation = 'destination-in';
-      lg.drawImage(this.bg, 0, 0, VIEW_W, VIEW_H);
-      lg.globalCompositeOperation = 'source-over';
-      g.drawImage(this.lyricLayer, 0, 0);
-    }
+    g.restore();
   }
 
-  /** Zeile zeichnen — mit Umbruch, zentriert um die Rollen-Position */
+  /** Hintergrund als Cover-Crop: Seitenverhältnis erhalten, oben verankert
+   *  und horizontal zentriert — die Farbflächen hängen an der Oberkante
+   *  der Wall. */
+  private drawBg(ctx: CanvasRenderingContext2D) {
+    const s = Math.max(VIEW_W / this.bg.naturalWidth, VIEW_H / this.bg.naturalHeight);
+    const w = this.bg.naturalWidth * s;
+    const h = this.bg.naturalHeight * s;
+    ctx.drawImage(this.bg, (VIEW_W - w) / 2, 0, w, h);
+  }
+
+  /** Zeile zeichnen — zentriert, feste Größe für alle Titel. Über 44
+   *  Zeichen bricht die Zeile um; der Block zentriert sich um den Anker
+   *  (rutscht bei zwei Zeilen also eine halbe Zeilenhöhe hoch). */
   private drawLine(g: CanvasRenderingContext2D, text: string, state: RoleState, alpha: number) {
     if (!text || alpha <= 0.01) return;
     g.save();
     g.globalAlpha = alpha;
     // Lyrics immer weiß — keine Grau-Abstufung, keine Farbanimation
     g.fillStyle = '#ffffff';
-    g.font = `400 ${Math.round(state.size)}px 'TheSans', system-ui, sans-serif`;
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-
-    // Umbruch auf 90% Breite (wie padding im Original)
-    const maxW = VIEW_W * 0.9;
-    const words = text.split(' ');
-    const rows: string[] = [];
-    let row = '';
-    for (const word of words) {
-      const probe = row ? row + ' ' + word : word;
-      if (g.measureText(probe).width > maxW && row) {
-        rows.push(row);
-        row = word;
-      } else {
-        row = probe;
-      }
-    }
-    if (row) rows.push(row);
-
-    const lineH = state.size * 1.2;
+    g.font = `700 ${LYRIC_SIZE}px 'TheSans', system-ui, sans-serif`;
+    const rows = wrapLyric(text);
+    const lineH = LYRIC_SIZE * 1.2;
     const cy = ANCHOR_Y + state.y - ((rows.length - 1) * lineH) / 2;
-    rows.forEach((r, i) => g.fillText(r, VIEW_W / 2, cy + i * lineH));
+    rows.forEach((r, i) => g.fillText(r, LYRIC_X, cy + i * lineH));
     g.restore();
   }
 
@@ -459,21 +466,14 @@ export class Schmalaoke implements Game {
     this.sendPresenter();
   }
 
-  private texts() {
+  private currentText(): string {
     const max = this.lines.length - 1;
-    return {
-      current: this.currentLine >= 0 && this.currentLine <= max ? this.lines[this.currentLine] : '',
-      next: this.currentLine + 1 <= max ? this.lines[this.currentLine + 1] : '',
-    };
+    return this.currentLine >= 0 && this.currentLine <= max ? this.lines[this.currentLine] : '';
   }
 
   /** Harter Schnitt ohne Animation (Start, Sprung, Restart) */
   private showHard() {
-    const t = this.texts();
-    this.sprites = [
-      { text: t.current, from: 'current', to: 'current', t0: this.time, transient: false },
-      { text: t.next, from: 'next', to: 'next', t0: this.time, transient: false },
-    ];
+    this.sprites = [{ text: this.currentText(), from: 'current', to: 'current', t0: this.time, transient: false }];
   }
 
   private handleSpace() {
@@ -531,26 +531,22 @@ export class Schmalaoke implements Game {
     }
   }
 
-  /** Forward: current fährt hoch raus, next wächst zur Current, neue Next kommt von unten */
+  /** Forward: alte Zeile fliegt nach unten raus (Maske wischt sie an der
+   *  Unterkante der Farbfläche weg), neue Zeile fliegt von oben ein */
   private animateForward() {
-    const t = this.texts();
     const prevText = this.currentLine > 0 ? this.lines[this.currentLine - 1] : '';
     this.sprites = [
-      { text: prevText, from: 'current', to: 'exitUp', t0: this.time, transient: true },
-      { text: t.current, from: 'next', to: 'current', t0: this.time, transient: false },
-      // Phase 2: neue Next erst nach der ersten Animation (wie im Original)
-      { text: t.next, from: 'enterBelow', to: 'next', t0: this.time + ANIM_S, transient: false },
+      { text: prevText, from: 'current', to: 'exitDown', t0: this.time, transient: true },
+      { text: this.currentText(), from: 'enterAbove', to: 'current', t0: this.time, transient: false },
     ];
   }
 
-  /** Backward: next fährt unten raus, current schrumpft zur Next, neue Current von oben */
+  /** Backward: gespiegelt — alte Zeile fliegt oben raus, neue kommt von unten */
   private animateBackward() {
-    const t = this.texts();
-    const oldNext = this.currentLine + 2 <= this.lines.length - 1 ? this.lines[this.currentLine + 2] : '';
+    const oldText = this.currentLine + 1 <= this.lines.length - 1 ? this.lines[this.currentLine + 1] : '';
     this.sprites = [
-      { text: oldNext, from: 'next', to: 'exitDown', t0: this.time, transient: true },
-      { text: t.next, from: 'current', to: 'next', t0: this.time, transient: false },
-      { text: t.current, from: 'enterAbove', to: 'current', t0: this.time + ANIM_S, transient: false },
+      { text: oldText, from: 'current', to: 'exitUp', t0: this.time, transient: true },
+      { text: this.currentText(), from: 'enterBelow', to: 'current', t0: this.time, transient: false },
     ];
   }
 
