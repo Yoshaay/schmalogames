@@ -1,25 +1,27 @@
 import { Game, GameContext, SettingValues, VIEW_W, VIEW_H } from '../../core/game';
 import { Confetti } from '../../core/confetti';
-import bgUrl from './assets/Applausometer_Background.png';
-import dashUrl from './assets/Applausometer_Dash.png';
+import bgUrl from './assets/Applausometer_BG_hoch.png';
 
 type State = 'playing' | 'won';
 
-/* Aus dem Background-Asset (1920×1080) vermessen: */
-// weiße Meter-Bahn links (das weiße Rechteck)
-const BAR_X = 117;
-const BAR_W = 322 - 117;
-// Vertikale Skala = Skalenstriche des Backgrounds (liegen 6 px innerhalb der
-// Bahn — das ist das vertikale Padding). So sitzt auch das Dash-Overlay bei
-// jedem Grenzwert exakt auf dem Raster des Designs.
-const SCALE_BOTTOM = 989;
-const SCALE_TOP = 232;
-// Horizontaler Innenabstand der Füllung — die Bahn bleibt als Rahmen sichtbar
-const PAD = 12;
-// Höhe, auf der die Linie im Dash-Overlay liegt
-const DASH_Y = 383;
-// Mitte der großen weißen Fläche (Konfetti-Ursprung)
-const NUM_X = 1216;
+/* Aus dem Hochkant-Asset (Applausometer_BG_hoch.png, 641×1025) vermessen und
+ * mit dem Cover-Faktor 1920/1025 in View-Koordinaten umgerechnet: */
+// Die weiße Meter-Bahn ist ein spitz zulaufendes Dreieck im grünen Keil:
+// oben breit, rechte Kante senkrecht, linke Kante läuft schräg auf die
+// Spitze unten zu. Gefüllt wird per Clip auf dieses Polygon.
+const SLOT: Array<[number, number]> = [
+  [822, 206], // oben links
+  [1111, 206], // oben rechts
+  [1111, 1540], // Spitze unten
+];
+const SLOT_RIGHT = 1111;
+/** Linke Schlitzkante auf Höhe y (Steigung der schrägen Kante) */
+const slotLeftAt = (y: number) => 822 + 0.2167 * (y - 206);
+// Vertikale Skala = Skalenstriche des Backgrounds
+const SCALE_BOTTOM = 1442;
+const SCALE_TOP = 206;
+// Mitte der freien (transparenten) Fläche links — Konfetti-Ursprung
+const NUM_X = 400;
 
 export class Applausometer implements Game {
   private state: State = 'playing';
@@ -38,17 +40,19 @@ export class Applausometer implements Game {
   private time = 0;
   /** Nach einem Gewinn: kurze Pause, bevor der Pegel wieder steigen kann */
   private winTimer = 0;
+  /** Gewinn-Schwung: abklingende Aufwärts-Geschwindigkeit fürs Überschießen */
+  private winPush = 0;
+  /** aktuelle Steiggeschwindigkeit des Pegels (für die nahtlose Übergabe) */
+  private riseVel = 0;
   /** Humanizer: abklingende Spitze (einzelne laute Klatscher/Rufe) */
   private spike = 0;
   private confetti = new Confetti();
   private ctx: GameContext | null = null;
   private bg = new Image();
-  private dash = new Image();
 
   init(ctx: GameContext) {
     this.ctx = ctx;
     this.bg.src = bgUrl;
-    this.dash.src = dashUrl;
   }
 
   applySettings(values: SettingValues) {
@@ -60,6 +64,7 @@ export class Applausometer implements Game {
     if (id === 'reset') {
       this.state = 'playing';
       this.winTimer = 0;
+      this.winPush = 0;
       this.level = 0;
       this.peak = 0;
       this.confetti.clear();
@@ -103,14 +108,25 @@ export class Applausometer implements Game {
     const raw = Math.min(1, this.faderSmooth * (0.82 + 0.2 * n));
 
     // --- Pegel glätten ---
-    // Steigen nur im Spielbetrieb, Fallen immer (auch nach dem Gewinn)
+    // Steigen nur im Spielbetrieb; Fallen erst, wenn der Gewinn-Schwung
+    // (winPush) ausgelaufen ist — sonst würde der Release das Überschießen
+    // sofort wieder auffressen
+    const prevLevel = this.level;
     if (raw > this.level && this.state === 'playing') {
       // Anschwellen: zügig, aber nicht schlagartig
       this.level += (raw - this.level) * Math.min(1, dt * 6);
-    } else if (raw < this.level) {
+    } else if (raw < this.level && this.winPush < 0.02) {
       // langsamer Abfall (Release)
       this.level = Math.max(raw, this.level - dt * this.fallSpeed);
     }
+
+    // Gewinn-Schwung: abklingende Aufwärts-Geschwindigkeit — der Pegel
+    // gleitet mit Ease-out über den Grenzwert hinaus statt zu springen
+    if (this.winPush > 0.005) {
+      this.level = Math.min(1, this.level + this.winPush * dt);
+      this.winPush *= Math.exp(-dt * 4);
+    }
+    if (dt > 0) this.riseVel = (this.level - prevLevel) / dt;
     this.peak = Math.max(this.peak - dt * 0.08, this.level);
 
     // --- Gewinn: Konfetti, Fader auf null — der Pegel fällt von allein ab ---
@@ -118,6 +134,9 @@ export class Applausometer implements Game {
       this.state = 'won';
       this.winTimer = 2;
       this.confetti.burst(180, NUM_X, VIEW_H / 3);
+      // Schwung mitgeben: startet mit der ECHTEN Steiggeschwindigkeit des
+      // Gewinn-Moments (kein Knick an der Linie) und klingt dann weich ab
+      this.winPush = Math.min(0.6, Math.max(0.18, this.riseVel));
       this.fader = 0;
       this.ctx?.setSetting('fader', 0);
     }
@@ -140,12 +159,16 @@ export class Applausometer implements Game {
   }
 
   private renderMeter(g: CanvasRenderingContext2D) {
-    // Füllbereich: horizontal eingerückt, vertikal auf der Strich-Skala
-    const fillX = BAR_X + PAD;
-    const fillW = BAR_W - PAD * 2;
     const fillBottom = SCALE_BOTTOM;
-    const fillTop = SCALE_TOP;
-    const fillH = fillBottom - fillTop;
+    const fillH = fillBottom - SCALE_TOP;
+
+    // Füllung und Peak leben NUR im Schlitz: Clip auf das Bahn-Dreieck —
+    // die weiße Bahn bleibt außenrum als Rahmen/Restfläche sichtbar
+    g.save();
+    g.beginPath();
+    SLOT.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
+    g.closePath();
+    g.clip();
 
     // Pegel in festen Farbzonen: untere Hälfte hellgrün, darüber orange, oben pink
     const zones: Array<[from: number, to: number, color: string]> = [
@@ -157,19 +180,27 @@ export class Applausometer implements Game {
       const top = Math.min(this.level, to);
       if (top <= from) continue;
       g.fillStyle = color;
-      g.fillRect(fillX, fillBottom - top * fillH, fillW, (top - from) * fillH);
+      g.fillRect(SLOT[0][0], fillBottom - top * fillH, VIEW_W - SLOT[0][0], (top - from) * fillH);
     }
 
     // Peak-Marker — BR3-Blau statt Dunkel: fast-schwarze Pixel würden
     // beim Luma-Key im Ü-Wagen mit ausgestanzt
     const peakY = fillBottom - this.peak * fillH;
     g.fillStyle = '#2699d6';
-    g.fillRect(fillX - 6, peakY - 3, fillW + 12, 6);
+    g.fillRect(SLOT[0][0], peakY - 4, VIEW_W - SLOT[0][0], 8);
+    g.restore();
 
-    // Grenzwert: Dash-Overlay vertikal auf die Grenzwert-Höhe geschoben
+    // Grenzwert: gestrichelte Pink-Linie quer über den Schlitz, ragt links
+    // und rechts ein Stück auf das Grün raus (ersetzt das alte Dash-Overlay)
     const thrY = fillBottom - this.threshold * fillH;
-    if (this.dash.complete && this.dash.naturalWidth) {
-      g.drawImage(this.dash, 0, thrY - DASH_Y, VIEW_W, VIEW_H);
-    }
+    g.save();
+    g.strokeStyle = '#e71d73';
+    g.lineWidth = 8;
+    g.setLineDash([26, 16]);
+    g.beginPath();
+    g.moveTo(slotLeftAt(thrY) - 70, thrY);
+    g.lineTo(SLOT_RIGHT + 40, thrY);
+    g.stroke();
+    g.restore();
   }
 }
