@@ -1,9 +1,10 @@
 import type { Input } from './input';
 
-// Virtuelle Auflösung: alle Games rendern in 1920x1080,
+// Virtuelle Auflösung: alle Games rendern in 1200x1920 (10:16 Hochformat
+// für die Ziel-Videowalls),
 // der Host skaliert aufs Fenster (Letterboxing).
-export const VIEW_W = 1920;
-export const VIEW_H = 1080;
+export const VIEW_W = 1200;
+export const VIEW_H = 1920;
 
 export interface GameContext {
   input: Input;

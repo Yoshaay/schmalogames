@@ -235,9 +235,9 @@
         justify-content: center;
       }
       .preview-frame {
-        /* exakt 16:9, eingepasst in Breite UND Höhe des verfügbaren Raums */
-        width: min(100%, calc(100cqh * 16 / 9));
-        aspect-ratio: 16 / 9;
+        /* exakt 9:16 (FHD hochkant), eingepasst in Breite UND Höhe des verfügbaren Raums */
+        width: min(100%, calc(100cqh * 9 / 16));
+        aspect-ratio: 9 / 16;
         display: flex;
         align-items: center;
         justify-content: center;

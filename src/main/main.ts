@@ -8,11 +8,11 @@ function createWindows() {
   const preload = path.join(__dirname, 'preload.js');
   const rendererDir = path.join(__dirname, '../renderer');
 
-  // Cleanfeed für die Videowall — zeigt nur das finale Bild
+  // Cleanfeed für die Anlieferung — volles FHD-Bild HOCHKANT (1080×1920), Wall-Bereich mittig
   wall = new BrowserWindow({
-    width: 1280,
-    height: 720,
-    // 1280×720 soll der INHALT sein (sonst klaut die Titelleiste Höhe → Letterbox-Balken)
+    width: 450,
+    height: 800,
+    // 450×800 (9:16) soll der INHALT sein (sonst klaut die Titelleiste Höhe → Letterbox-Balken)
     useContentSize: true,
     backgroundColor: '#000000',
     autoHideMenuBar: true,
@@ -21,8 +21,8 @@ function createWindows() {
     // komplett verdeckt oder minimiert ist
     webPreferences: { contextIsolation: true, nodeIntegration: false, preload, backgroundThrottling: false },
   });
-  // Beim manuellen Resizen 16:9 halten — im Fenstermodus keine schwarzen Balken
-  wall.setAspectRatio(16 / 9);
+  // Beim manuellen Resizen 9:16 halten — im Fenstermodus keine schwarzen Balken
+  wall.setAspectRatio(9 / 16);
   wall.loadFile(path.join(rendererDir, 'wall.html'));
 
   // Steuerung für den Operator
