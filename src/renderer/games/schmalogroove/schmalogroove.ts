@@ -2,33 +2,122 @@ import * as THREE from 'three';
 import { Game, GameContext, SettingValues, VIEW_W, VIEW_H } from '../../core/game';
 import { Confetti } from '../../core/confetti';
 import { BeatEngine } from '../../core/beat';
-import { Dancer, MOVE_NAMES } from './dancer';
+import { Dancer } from './dancer';
+import { MOVE_NAMES } from './moves';
 import { MIXAMO_CLIPS } from './mixamo-clips';
 import { SpeedBurst } from './burst';
 
 // Mocap-Clips (Mixamo, auf das CC-Modell retargetet) statt prozeduraler
 // Moves. Auf false stellen → prozedurales System.
 const USE_MOCAP_CLIPS = false;
-import bgUrl from './assets/Tanzspiel_Hintergrund.png';
+import bg1Url from './assets/DanceBG_hoch1.png';
+import bg2Url from './assets/DanceBG_hoch2.png';
 
-// Position der Tänzerin im Frame: auf der grünen Fläche rechts, unter dem
-// "Tanz mit!"-Schriftzug — die transparente Fläche links zeigt das Livebild
-const STAGE_CENTER_X = 1620;
+/** Welcher Hochkant-Hintergrund läuft:
+ *  1 = DanceBG_hoch1: grüner Keil rechts (Kante x ≈ 292 oben → 1045 unten),
+ *      Avatar steht auf dem Keil unter dem "Tanz mit!"-Schriftzug.
+ *  2 = DanceBG_hoch2: grünes Dreieck unten links (Oberkante y ≈ 956 links
+ *      → 1905 rechts), Avatar steht klein unten links im Dreieck.
+ *  Die transparente Fläche zeigt jeweils das Livebild. */
+const BG_VERSION = 1 as 1 | 2;
 
-// Auszeichnung + Konfetti erscheinen unter der Tänzerin auf der grünen Fläche
-// (CHEER_Y = vertikale MITTE des Banners)
-const CHEER_X = STAGE_CENTER_X;
-const CHEER_Y = 950;
+/** Layout pro Hintergrund: Avatar-Position, Kamera-Abstand (= Größe),
+ *  Auszeichnung (Mitte + max. Textbreite auf dem Grün) und Burst-Zentrum
+ *  (freie Bühnenfläche — der Burst liegt UNTER dem HG-Asset, dessen
+ *  deckende Flächen maskieren ihn automatisch). */
+const LAYOUTS = {
+  1: {
+    bg: bg1Url,
+    stage: [890, 650],
+    camZ: 6.8,
+    // Auszeichnung unten am Rand, mittig über der transparenten (Alpha-)
+    // Fläche links vom Keil — dort liegt später das Livebild
+    cheer: [520, 1790],
+    cheerMaxW: 700,
+    burst: [350, 960],
+    // Keil-Kante (Emitter für die Beat-Dreiecke) + Flugrichtung (raus = links)
+    edge: [
+      [292, 0],
+      [1045, 1920],
+    ],
+    emit: [-1, 0.12],
+    // Sonar-Ripple: Zentrum tief unter der Tänzerin, Ringe auf die
+    // Grünfläche geclippt
+    ripple: [990, 1500],
+    rippleMax: 420,
+    greenClip: [
+      [292, 0],
+      [1200, 0],
+      [1200, 1920],
+      [1045, 1920],
+    ],
+  },
+  2: {
+    bg: bg2Url,
+    stage: [230, 1580],
+    camZ: 8.0,
+    cheer: [760, 1830],
+    cheerMaxW: 500,
+    burst: [600, 900],
+    // Oberkante des Dreiecks unten links, Dreiecke fliegen nach oben raus
+    edge: [
+      [0, 956],
+      [1200, 1905],
+    ],
+    emit: [0.12, -1],
+    // Sonar-Ripple: rechts neben der Tänzerin auf dem Dreieck
+    ripple: [700, 1700],
+    rippleMax: 400,
+    greenClip: [
+      [0, 956],
+      [1200, 1905],
+      [1200, 1920],
+      [0, 1920],
+    ],
+  },
+};
+const LAYOUT = LAYOUTS[BG_VERSION];
 
-// Zentrum der freien Bühnenfläche (später Publikumscam) — dort zündet der Burst.
-// Er wird UNTER dem Hintergrund-Asset gerendert: dessen deckende Teile (Rahmen,
-// Diagonale) maskieren ihn automatisch, sichtbar bleibt er nur im transparenten
-// Fenster. Groß genug, damit die quadratische Canvas-Kante außerhalb liegt.
-const BURST_X = 610;
-const BURST_Y = 520;
-const BURST_SIZE = 1600;
-// verfügbare Breite auf der grünen Fläche
-const CHEER_MAX_W = 540;
+const bgUrl = LAYOUT.bg;
+const STAGE_CENTER_X = LAYOUT.stage[0];
+const STAGE_CENTER_Y = LAYOUT.stage[1];
+const CAM_Z = LAYOUT.camZ;
+const CHEER_X = LAYOUT.cheer[0];
+const CHEER_Y = LAYOUT.cheer[1];
+const CHEER_MAX_W = LAYOUT.cheerMaxW;
+const BURST_X = LAYOUT.burst[0];
+const BURST_Y = LAYOUT.burst[1];
+// groß genug, dass die quadratische Canvas-Kante bei BEIDEN Layouts komplett
+// außerhalb der transparenten Fläche liegt (die reicht im Hochkant-Format
+// von ganz oben bis ganz unten) — sonst croppt der Burst sichtbar
+const BURST_SIZE = 2200;
+
+/** Beat-Dreiecke: CI-Partikel, die von der Keilkante wegfliegen, dabei
+ *  schrumpfen und gemeinsam auf dem Beat pulsieren.
+ *  Farben: BR3-Palette — Hellgrün, Blau, Pink, Orange */
+const TRI_COLORS = ['#9be600', '#2699d6', '#e71d73', '#f9b233'];
+/** Größen-Puls auf dem Beat (Anteil der Grundgröße) */
+const TRI_PULSE = 0.9;
+/** Dauer-Nachschub pro Sekunde (zusätzlich zur Salve auf jedem Beat) */
+const TRI_RATE = 4;
+/** Anteil der Beat-Phase für den schnellen Puls-Anstieg (danach Ease-out) */
+const PUMP_ATTACK = 0.08;
+
+/** Auto-Rotation: Zieldauer pro Move in Sekunden (taktgerecht gerundet) */
+const MOVE_SECONDS = 30;
+
+/** Zweites Sonar aus der Ecke oben rechts: Zentrum exakt auf der Ecke,
+ *  sichtbar sind also nur Viertelringe. */
+const CORNER_MAX = 300;
+
+/** Sonar-Ripple: pro Beat ein Ring, der sich ausdehnt und verblasst —
+ *  geclippt auf die Grünfläche, damit nichts ins Livebild läuft.
+ *  Die Takt-„1" bekommt einen kräftigeren Ring in Pink. */
+const RIPPLE_LIFE = 0.9; // Lebensdauer eines Rings in s
+const RIPPLE_MIN_R = 40;
+/** Ringfarben — pro Beat und pro Sonar unabhängig gewürfelt
+ *  (kein Grün — ginge auf dem Grün unter) */
+const RIPPLE_COLORS = ['#2699d6', '#f9b233', '#e71d73'];
 
 /** Auszeichnungen: je ein Operator-Button, togglebar, immer mit Konfetti */
 export const CHEERS = ['TANZGOTT', 'GROOVE-LEGENDE', 'TANZMASCHINE', 'DISCO-FIEBER'];
@@ -59,9 +148,9 @@ interface Cmd {
 }
 
 /**
- * Beat-Dancer auf der Wall: Three.js-Szene wird offscreen in 1920×1080
- * gerendert und in den 2D-Canvas des Hosts geblittet. Cleanfeed — das
- * komplette HUD lebt im Operator-Panel.
+ * Beat-Dancer auf der Wall: Three.js-Szene wird offscreen in der virtuellen
+ * View-Auflösung (1200×1920) gerendert und in den 2D-Canvas des Hosts
+ * geblittet. Cleanfeed — das komplette HUD lebt im Operator-Panel.
  */
 export class Schmalogroove implements Game {
   private ctx: GameContext | null = null;
@@ -96,8 +185,10 @@ export class Schmalogroove implements Game {
   /* ---------- Beat + Show ---------- */
   private engine = new BeatEngine();
   private moveAmp = 1;
-  /** Fest angewählte Pose (Operator) — pausiert die 8-Beat-Rotation */
+  /** Fest angewählte Pose (Operator) — pausiert die Auto-Rotation */
   private lockedMove: string | null = null;
+  /** Beat, auf dem zuletzt der Move gewechselt hat (Auto-Rotation) */
+  private moveSwitchBeat = 0;
   /** Geglätteter Seitenwechsel — kein hartes Umschnappen pro Beat */
   private dirSmooth = 1;
   private time = 0;
@@ -129,13 +220,49 @@ export class Schmalogroove implements Game {
   private confetti = new Confetti();
   private confettiTimer = 0;
 
+  /* ---------- Beat-Dreiecke (Kanten-Emitter) ---------- */
+  /** Sonar-Ringe: Alter in s + ob Takt-„1" (kräftig/pink). Pro Sonar eine
+   *  eigene, unabhängig gewürfelte Farbe — nur der Takt ist gesynct. */
+  private ripples: Array<{ age: number; strong: boolean; colors: [string, string] }> = [];
+
+  private beatTris: Array<{
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    r: number;
+    rot: number;
+    spin: number;
+    life: number;
+    maxLife: number;
+    color: string;
+  }> = [];
+  private triSpawnAcc = 0;
+
   init(ctx: GameContext) {
     this.ctx = ctx;
     this.bg.src = bgUrl;
     if (USE_MOCAP_CLIPS) this.dancer.loadMixamoClips(MIXAMO_CLIPS);
     this.buildScene();
     this.engine.onBeat = () => {
-      if (this.engine.beatCount % 8 === 0 && !this.lockedMove) this.dancer.nextMove();
+      // Auto-Rotation: ~MOVE_SECONDS pro Move, aber taktgerecht — gewechselt
+      // wird auf einer Takt-„1", nach der aufs 4er-Raster gerundeten Beat-Zahl
+      const bc = this.engine.beatCount;
+      if (bc < this.moveSwitchBeat) this.moveSwitchBeat = bc; // Engine-Reset: neu aufsetzen
+      const beatsPerMove =
+        this.engine.bpm > 0 ? Math.max(4, Math.round((this.engine.bpm * MOVE_SECONDS) / 60 / 4) * 4) : 16;
+      if (!this.lockedMove && bc % 4 === 0 && bc - this.moveSwitchBeat >= beatsPerMove) {
+        this.moveSwitchBeat = bc;
+        this.dancer.nextMove();
+      }
+      // Salve Beat-Dreiecke + Sonar-Ring auf jedem Beat
+      if (this.playing) {
+        this.spawnBeatTris(7);
+        // Farbe pro Sonar komplett unabhängig würfeln; die Takt-„1" bleibt
+        // nur über den dickeren Ring erkennbar
+        const pick = () => RIPPLE_COLORS[Math.floor(Math.random() * RIPPLE_COLORS.length)];
+        this.ripples.push({ age: 0, strong: bc % 4 === 0, colors: [pick(), pick()] });
+      }
     };
     navigator.mediaDevices.addEventListener('devicechange', this.onDeviceChange);
   }
@@ -174,7 +301,7 @@ export class Schmalogroove implements Game {
       this.cheerTimer = this.cheerDuration;
       this.cheerTris = this.makeCheerLayout();
       // eng hinter dem Oberkörper spawnen — der Avatar verdeckt das Auftauchen
-      this.confetti.burst(180, CHEER_X, 500, 160);
+      this.confetti.burst(180, STAGE_CENTER_X, STAGE_CENTER_Y - 150, 160);
       this.confettiTimer = 0.7;
     }
   }
@@ -296,6 +423,26 @@ export class Schmalogroove implements Game {
 
     this.burst.update(dt);
 
+    // Beat-Dreiecke: Dauer-Nachschub + Bewegung/Altern
+    if (this.playing) {
+      this.triSpawnAcc += dt * TRI_RATE;
+      while (this.triSpawnAcc >= 1) {
+        this.triSpawnAcc -= 1;
+        this.spawnBeatTris(1);
+      }
+    }
+    for (const t of this.beatTris) {
+      t.x += t.vx * dt;
+      t.y += t.vy * dt;
+      t.rot += t.spin * dt;
+      t.life -= dt;
+    }
+    this.beatTris = this.beatTris.filter((t) => t.life > 0);
+
+    // Sonar-Ringe altern
+    for (const r of this.ripples) r.age += dt;
+    this.ripples = this.ripples.filter((r) => r.age < RIPPLE_LIFE);
+
     // Auszeichnung aktiv: Konfetti regnet nach, bis die Zeit abläuft
     this.confetti.update(dt);
     if (this.cheer) {
@@ -306,7 +453,7 @@ export class Schmalogroove implements Game {
         this.confettiTimer -= dt;
         if (this.confettiTimer <= 0) {
           this.confettiTimer = 0.7;
-          this.confetti.burst(50, CHEER_X, 500, 160);
+          this.confetti.burst(50, STAGE_CENTER_X, STAGE_CENTER_Y - 150, 160);
         }
       }
     }
@@ -332,6 +479,13 @@ export class Schmalogroove implements Game {
     // Ebene 1: Hintergrund-Asset (transparente Bühnenfläche bleibt durchsichtig
     // fürs Keying im Ü-Wagen)
     if (this.bg.complete && this.bg.naturalWidth) g.drawImage(this.bg, 0, 0, VIEW_W, VIEW_H);
+    // Ebene 1.5: Beat-Dreiecke — fliegen von der Keilkante weg, schrumpfen
+    // über die Lebenszeit und pulsieren gemeinsam auf dem Beat
+    this.renderBeatTris(g);
+    // Ebene 1.6: Sonar-Ripple unter der Tänzerin, auf die Grünfläche geclippt
+    this.renderRipples(g);
+    // Ebene 1.7: zweites Sonar aus der Ecke oben rechts (Viertelringe)
+    this.drawSonarRings(g, VIEW_W, 0, CORNER_MAX, 1);
     // Ebene 2: Konfetti HINTER dem Charakter — die Partikel tauchen von
     // der Silhouette verdeckt auf und werden erst beim Rausfliegen sichtbar
     this.confetti.render(g);
@@ -362,6 +516,104 @@ export class Schmalogroove implements Game {
     // Ebene 4: Auszeichnung obendrauf
     this.renderCheer(g);
     if (this.debugSync) this.renderSyncDebug(g);
+  }
+
+  /** Puls 0..1 für die Beat-Dreiecke: schneller Anstieg direkt auf dem Beat,
+   *  dann Ease-out-Abfall über den Rest der Beat-Phase. Ohne Beat-Grid 0 —
+   *  die Dreiecke fliegen dann zwar, pulsieren aber nicht. */
+  private beatPump(): number {
+    if (!this.playing || this.engine.periodMs <= 0) return 0;
+    const p = Math.min(Math.max(this.engine.beatPhase, 0), 1);
+    if (p < PUMP_ATTACK) return p / PUMP_ATTACK;
+    // steiler Abfall: der Puls ist ein knackiger Pop statt einem langen
+    // Auslaufen — sonst geht er im Dauer-Schrumpfen der Dreiecke unter
+    return Math.exp(-(p - PUMP_ATTACK) * 9);
+  }
+
+  /** n Dreiecke an zufälligen Punkten der Keilkante loslassen */
+  private spawnBeatTris(n: number) {
+    const [a, b] = LAYOUT.edge;
+    const [ex, ey] = LAYOUT.emit;
+    for (let i = 0; i < n; i++) {
+      const u = Math.random();
+      const speed = 150 + Math.random() * 200;
+      // Flugrichtung: Layout-Richtung mit Streuung, normalisiert
+      const dx = ex + (Math.random() - 0.5) * 0.5;
+      const dy = ey + (Math.random() - 0.5) * 0.5;
+      const len = Math.hypot(dx, dy) || 1;
+      // kurz halten: die Dreiecke sollen den freien (Livebild-)Raum nur
+      // streifen, nicht füllen
+      const maxLife = 0.7 + Math.random() * 0.5;
+      this.beatTris.push({
+        x: a[0] + (b[0] - a[0]) * u,
+        y: a[1] + (b[1] - a[1]) * u,
+        vx: (dx / len) * speed,
+        vy: (dy / len) * speed,
+        r: 16 + Math.random() * 34,
+        rot: Math.random() * Math.PI * 2,
+        spin: (Math.random() - 0.5) * 3,
+        life: maxLife,
+        maxLife,
+        color: TRI_COLORS[Math.floor(Math.random() * TRI_COLORS.length)],
+      });
+    }
+  }
+
+  /** Sonar-Ringe zeichnen: dehnen sich mit Ease-out aus, werden dünner und
+   *  verblassen — an der Keilkante gekappt, laufen also nur auf dem Grün aus */
+  private renderRipples(g: CanvasRenderingContext2D) {
+    if (!this.ripples.length) return;
+    g.save();
+    g.beginPath();
+    LAYOUT.greenClip.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
+    g.closePath();
+    g.clip();
+    this.drawSonarRings(g, LAYOUT.ripple[0], LAYOUT.ripple[1], LAYOUT.rippleMax, 0);
+    g.restore();
+  }
+
+  /** Ein Satz Sonar-Ringe (Zustand aus this.ripples) um ein Zentrum;
+   *  colorSlot wählt die pro Sonar unabhängig gewürfelte Farbe */
+  private drawSonarRings(g: CanvasRenderingContext2D, cx: number, cy: number, maxR: number, colorSlot: 0 | 1) {
+    if (!this.ripples.length) return;
+    g.save();
+    for (const rp of this.ripples) {
+      const t = rp.age / RIPPLE_LIFE;
+      const ease = 1 - (1 - t) * (1 - t) * (1 - t); // Ease-out: schnell raus, weich auslaufen
+      const r = RIPPLE_MIN_R + (maxR - RIPPLE_MIN_R) * ease;
+      g.globalAlpha = (1 - t) * (rp.strong ? 0.95 : 0.75);
+      g.strokeStyle = rp.colors[colorSlot];
+      g.lineWidth = (rp.strong ? 26 : 14) * (1 - t) + 4;
+      g.beginPath();
+      g.arc(cx, cy, r, 0, Math.PI * 2);
+      g.stroke();
+    }
+    g.restore();
+  }
+
+  /** Beat-Dreiecke zeichnen: schrumpfen über die Lebenszeit, blenden am
+   *  Ende aus und pulsieren alle gemeinsam auf dem Beat */
+  private renderBeatTris(g: CanvasRenderingContext2D) {
+    if (!this.beatTris.length) return;
+    const pulse = 1 + TRI_PULSE * this.beatPump();
+    g.save();
+    for (const t of this.beatTris) {
+      const u = t.life / t.maxLife; // 1 → 0
+      const r = t.r * u * pulse;
+      if (r < 1) continue;
+      g.globalAlpha = Math.min(1, u * 1.5); // ab einem Drittel der Lebenszeit ausfaden
+      g.fillStyle = t.color;
+      g.beginPath();
+      for (let k = 0; k < 3; k++) {
+        const ang = t.rot + (k * 2 * Math.PI) / 3;
+        const px = t.x + Math.cos(ang) * r;
+        const py = t.y + Math.sin(ang) * r;
+        k === 0 ? g.moveTo(px, py) : g.lineTo(px, py);
+      }
+      g.closePath();
+      g.fill();
+    }
+    g.restore();
   }
 
   /**
@@ -547,11 +799,13 @@ export class Schmalogroove implements Game {
     this.scene = new THREE.Scene();
 
     this.camera = new THREE.PerspectiveCamera(40, VIEW_W / VIEW_H, 0.1, 50);
-    this.camera.position.set(0, 1.5, 4.2);
+    // Kamera weit genug weg, dass der Avatar KOMPLETT auf der grünen
+    // Fläche steht (samt Armen) — Abstand kommt aus dem Layout
+    this.camera.position.set(0, 1.5, CAM_Z);
     this.camera.lookAt(0, 0.85, 0);
-    // Blick nach rechts verschieben → der Tänzer landet im Zentrum der
-    // transparenten Bühnenfläche des Hintergrunds
-    this.camera.setViewOffset(VIEW_W, VIEW_H, VIEW_W / 2 - STAGE_CENTER_X, 0, VIEW_W, VIEW_H);
+    // Blick verschieben → der Tänzer landet auf dem grünen Keil unter dem
+    // "Tanz mit!"-Schriftzug
+    this.camera.setViewOffset(VIEW_W, VIEW_H, VIEW_W / 2 - STAGE_CENTER_X, VIEW_H / 2 - STAGE_CENTER_Y, VIEW_W, VIEW_H);
 
     /* CI-Shading: genau EIN weißes Licht mit Intensität 1,0 — die Toon-Stufen
        des Dancers (100/90/80%) multiplizieren direkt die CI-Farbwerte.
