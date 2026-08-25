@@ -303,6 +303,22 @@ window.bus.onMessage((raw) => {
     gamePanel?.onKey?.((raw as { code: string }).code);
     return;
   }
+  if (anyMsg.type === 'ndi-tally') {
+    const tally = (raw as { tally: Record<string, { onProgram: boolean; onPreview: boolean; connections: number }> })
+      .tally;
+    for (const [suffix, tagId] of [
+      ['Wall L', 'tag-l'],
+      ['Wall R', 'tag-r'],
+    ] as const) {
+      const entry = Object.entries(tally).find(([name]) => name.endsWith(suffix))?.[1];
+      const tag = $(tagId);
+      const state = entry?.onProgram ? 'ON AIR' : entry?.onPreview ? 'PVW' : '';
+      tag.textContent = `WALL ${suffix.slice(-1)}${state ? ` · ${state}` : ''}${entry?.connections ? '' : ' · offline'}`;
+      tag.classList.toggle('onair', entry?.onProgram === true);
+      tag.classList.toggle('pvw', !entry?.onProgram && entry?.onPreview === true);
+    }
+    return;
+  }
   if (anyMsg.type === 'wall-fullscreen-state') {
     const btn = $('fullscreen') as HTMLButtonElement;
     btn.textContent = anyMsg.fullscreen ? 'Vollbild verlassen' : 'Wall-Vollbild';

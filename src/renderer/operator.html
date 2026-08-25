@@ -261,6 +261,18 @@
         padding: 2px 6px;
         border-radius: 3px;
       }
+      /* NDI-Tally vom Ü-Wagen: Magenta = Quelle liegt auf Programm (ON AIR),
+         Gelb = auf Preview vorgewählt */
+      .preview-tag.onair {
+        background: var(--live);
+        color: #ffffff;
+        font-weight: 700;
+      }
+      .preview-tag.pvw {
+        background: #f9b233;
+        color: #101403;
+        font-weight: 700;
+      }
       .preview-frame video {
         max-width: 100%;
         max-height: 100%;
@@ -614,11 +626,11 @@
           <h2>Vorschau — Videowall</h2>
           <div class="preview-wrap">
             <div class="preview-frame">
-              <span class="preview-tag">WALL L</span>
+              <span class="preview-tag" id="tag-l">WALL L</span>
               <video id="preview-l" autoplay muted playsinline></video>
             </div>
             <div class="preview-frame">
-              <span class="preview-tag">WALL R</span>
+              <span class="preview-tag" id="tag-r">WALL R</span>
               <video id="preview-r" autoplay muted playsinline></video>
             </div>
           </div>

@@ -103,6 +103,13 @@ ipcMain.on('ndi-frame', (_event, frame: NdiFrame) => {
   void ndi.pushFrame(frame);
 });
 
+// Tally vom NDI-Rückkanal (Programm/Preview je Quelle) an den Operator melden
+ndi.onTally = (tally) => {
+  if (operator && !operator.isDestroyed()) {
+    operator.webContents.send('msg', { type: 'ndi-tally', tally });
+  }
+};
+
 // Nachrichten zwischen Operator- und Wall-Fenster vermitteln
 ipcMain.on('msg', (event, msg: { type?: string }) => {
   if (msg?.type === 'wall-fullscreen') {

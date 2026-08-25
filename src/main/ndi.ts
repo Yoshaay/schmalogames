@@ -20,6 +20,13 @@ export interface NdiFrame {
   data: ArrayBuffer;
 }
 
+/** Tally-Zustand einer NDI-Quelle, wie ihn die Empfänger zurückmelden */
+export interface NdiTallyState {
+  onProgram: boolean;
+  onPreview: boolean;
+  connections: number;
+}
+
 // grandi ist ESM-only und lädt native Addons — bleibt deshalb external
 // (nicht ins CJS-Bundle). Electron 36 (Node 22) kann ESM per require() laden.
 import type { Grandi, Sender } from 'grandi';
@@ -37,6 +44,35 @@ export class NdiOutput {
   private static readonly RETRY_MS = 5000;
   private retryAt = new Map<string, number>();
   private warned = new Set<string>();
+
+  /** Tally-Rückkanal: NDI-Empfänger melden pro Quelle, ob sie bei ihnen auf
+   *  Programm (on air) oder Preview liegt. Wird gepollt und bei Änderung
+   *  über den Callback gemeldet (→ Anzeige im Operator). */
+  onTally: ((tally: Record<string, NdiTallyState>) => void) | null = null;
+  private tallyTimer: ReturnType<typeof setInterval> | null = null;
+  private lastTallyJson = '';
+
+  private startTallyPolling() {
+    if (this.tallyTimer) return;
+    this.tallyTimer = setInterval(() => {
+      const snapshot: Record<string, NdiTallyState> = {};
+      for (const [name, sender] of this.senders) {
+        try {
+          const t = sender.tally();
+          snapshot[name] = {
+            onProgram: t.onProgram,
+            onPreview: t.onPreview,
+            connections: sender.connections(),
+          };
+        } catch {}
+      }
+      const json = JSON.stringify(snapshot);
+      if (json !== this.lastTallyJson) {
+        this.lastTallyJson = json;
+        this.onTally?.(snapshot);
+      }
+    }, 300);
+  }
 
   private load(): Grandi | null {
     if (this.grandi || this.loadFailed) return this.grandi;
@@ -69,6 +105,7 @@ export class NdiOutput {
         sender = await grandi.send({ name: frame.stream, clockVideo: false });
         this.senders.set(frame.stream, sender);
         console.log(`NDI-Quelle angelegt: ${sender.sourceName()}`);
+        this.startTallyPolling();
       }
       const data = Buffer.from(frame.data);
       premultiplyAlpha(data);
@@ -102,6 +139,8 @@ export class NdiOutput {
   }
 
   destroy() {
+    if (this.tallyTimer) clearInterval(this.tallyTimer);
+    this.tallyTimer = null;
     for (const sender of this.senders.values()) sender.destroy();
     this.senders.clear();
   }
