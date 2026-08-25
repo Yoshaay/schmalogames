@@ -59,14 +59,14 @@ const STYLE = `
   }
   .ka-col > .ka-head:first-child { margin-top: 0; }
 
-  /* Eine klare Primäraktion (gefüllt), alles andere ruhig und vollbreit */
-  .ka-root button { padding: 8px 10px; font-size: 12px; }
+  /* Eine klare Primäraktion (gefüllt), alles andere ruhig und vollbreit —
+     Größe/Form kommt aus dem globalen Button-Grundformat (operator.html) */
   .ka-btn-primary {
-    display: block; width: 100%; font-weight: 700; text-align: center;
+    width: 100%; font-weight: 700;
     background: var(--primary); border-color: var(--primary-deep); color: #101403;
   }
   .ka-btn-primary:hover { background: var(--primary-bright); border-color: var(--primary); }
-  .ka-btn-wide { display: block; width: 100%; text-align: center; }
+  .ka-btn-wide { width: 100%; }
   .ka-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
   .ka-root button.armed { color: var(--live); border-color: rgba(231, 29, 115, 0.5); }
   .ka-row { display: flex; gap: 6px; align-items: center; }
@@ -97,7 +97,8 @@ const STYLE = `
      (Umsortieren geht ohnehin auch per Drag & Drop) */
   .ka-song .ops { display: none; gap: 2px; }
   .ka-song:hover .ops { display: flex; }
-  .ka-song .ops button { padding: 2px 7px; font-size: 11px; }
+  /* Bewusste Ausnahme vom Grundformat: Mini-Controls IN den Listenzeilen */
+  .ka-song .ops button { height: 22px; padding: 0 7px; font-size: 11px; }
   .ka-lyric {
     padding: 4px 10px; font-size: 12px; color: var(--ink-dim);
     border-left: 3px solid transparent; cursor: pointer;
@@ -114,7 +115,7 @@ const STYLE = `
   .ka-row select {
     flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 11px; color: var(--ink);
     background: #1d2029; border: 1px solid var(--panel-edge); border-radius: 4px;
-    padding: 7px 8px;
+    height: 34px; padding: 0 8px;
   }
   .ka-beat {
     width: 12px; height: 12px; border-radius: 50%; background: #3a3e4c;
@@ -163,13 +164,13 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
           <div class="ka-list" data-id="songs"></div>
           <button data-id="add" class="ka-btn-primary">+ Songs hinzufügen</button>
           <div class="ka-grid2">
-            <button data-id="save" title="Setlist als JSON-Datei sichern">💾 Speichern</button>
-            <button data-id="loadlist" title="Setlist aus JSON-Datei laden — ersetzt die aktuelle Liste">📂 Laden</button>
+            <button data-id="save" title="Setlist als JSON-Datei sichern">Speichern</button>
+            <button data-id="loadlist" title="Setlist aus JSON-Datei laden — ersetzt die aktuelle Liste">Laden</button>
           </div>
           <div class="ka-head">Wiedergabe</div>
           <div class="ka-grid2">
-            <button data-id="restart" title="Song von vorn — Taste Home">↺ Neustart</button>
-            <button data-id="next" title="Taste N">⏭ Nächster Song</button>
+            <button data-id="restart" title="Song von vorn — Taste Home">Neustart</button>
+            <button data-id="next" title="Taste N">Nächster Song</button>
           </div>
           <div class="ka-head" title="Beats zählen die Zeilen weiter — braucht &lt;N&gt;-Tags in der LRC">Auto-Advance · Beat-Sync</div>
           <button data-id="auto" class="ka-btn-wide"><span class="ka-beat" data-id="beatdot"></span><span data-id="autolabel">Auto-Advance</span></button>
@@ -178,7 +179,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
               <option value="default">Standard-Eingang</option>
             </select>
             <span class="ka-meta" data-id="bpm">—</span>
-            <button data-id="bpmreset" title="BPM zurücksetzen — Erkennung lockt neu ein">↺</button>
+            <button data-id="bpmreset" title="BPM zurücksetzen — Erkennung lockt neu ein">Reset</button>
           </div>
           <input type="file" accept=".lrc" multiple hidden>
           <input type="file" accept=".json" data-id="setlistfile" hidden>

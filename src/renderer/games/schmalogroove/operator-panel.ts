@@ -19,7 +19,6 @@ interface Tick {
 
 const STYLE = `
   .gr-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
-  .gr-row button { padding: 8px 12px; font-size: 13px; }
   .gr-row button.armed { color: var(--live); border-color: rgba(231, 29, 115, 0.5); }
   @keyframes gr-taphit { 0% { background: var(--primary); color: #111; } 100% { background: transparent; } }
   .gr-row button.hit { animation: gr-taphit 0.15s ease; }
@@ -30,7 +29,8 @@ const STYLE = `
     background: #1d2029;
     border: 1px solid var(--panel-edge);
     border-radius: 4px;
-    padding: 8px 10px;
+    height: 34px;
+    padding: 0 10px;
     max-width: 220px;
   }
   .gr-bpm { margin-left: auto; display: flex; align-items: baseline; gap: 10px; }
@@ -62,6 +62,7 @@ export function buildGroovePanel(container: HTMLElement, api: OperatorPanelApi):
       </select>
       <button data-id="tap" title="Tap-Tempo — Taste T">Tap</button>
       <button data-id="auto" disabled title="Zurück zur automatischen Erkennung">Auto</button>
+      <button data-id="syncdebug" title="Beat-Blitz auf der Wall zum Einpegeln des Sync-Offsets">Sync-Debug</button>
       <div class="gr-bpm">
         <span class="gr-bpm-num searching" data-id="bpm">—</span>
         <span class="gr-bpm-sub" data-id="sub">warte auf Beat</span>
@@ -119,6 +120,10 @@ export function buildGroovePanel(container: HTMLElement, api: OperatorPanelApi):
   };
   q('prevmove').onclick = () => stepMove(-1);
   q('nextmove').onclick = () => stepMove(1);
+
+  // Debug-Werkzeug: Beat-Blitz + Metronom-Punkt auf der Wall — läuft über den
+  // normalen action-Kanal (Game.action('syncdebug')), nicht über den Panel-Kanal
+  q('syncdebug').onclick = () => window.bus.send({ type: 'action', id: 'syncdebug' });
 
   /* ---------- Transport ---------- */
   q('load').onclick = () => fileInput.click();

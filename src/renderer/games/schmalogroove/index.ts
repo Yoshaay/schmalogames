@@ -23,8 +23,8 @@ export const schmalogrooveEntry: GameEntry = {
   // Sync-Debug bewusst NICHT hier (kein Hotkey, kein Button zwischen den
   // Show-Aktionen) — der Toggle sitzt in der Kopfzeile des Operators
   actions: [
-    ...CHEERS.map((cheer, i) => ({ id: `cheer${i}`, label: `🎉 ${cheer}` })),
-    { id: 'burst', label: '✨ Speedburst (Publikumscam)' },
+    ...CHEERS.map((cheer, i) => ({ id: `cheer${i}`, label: cheer })),
+    { id: 'burst', label: 'Speedburst (Publikumscam)' },
   ],
   buildOperatorPanel: buildGroovePanel,
   create: () => new Schmalogroove(),
