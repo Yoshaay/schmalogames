@@ -16,6 +16,7 @@
     "typescript": "^5.8.0"
   },
   "dependencies": {
+    "grandi": "^2.0.2",
     "three": "^0.128.0"
   }
 }

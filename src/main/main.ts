@@ -1,18 +1,20 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import * as path from 'node:path';
+import { NdiOutput, NdiFrame } from './ndi';
 
 let wall: BrowserWindow | null = null;
 let operator: BrowserWindow | null = null;
+const ndi = new NdiOutput();
 
 function createWindows() {
   const preload = path.join(__dirname, 'preload.js');
   const rendererDir = path.join(__dirname, '../renderer');
 
-  // Cleanfeed für die Anlieferung — volles FHD-Bild HOCHKANT (1080×1920), Wall-Bereich mittig
+  // Cleanfeed für die Anlieferung — volles FHD-Bild 16:9 (1920×1080), Wall-Bereich mittig
   wall = new BrowserWindow({
-    width: 450,
-    height: 800,
-    // 450×800 (9:16) soll der INHALT sein (sonst klaut die Titelleiste Höhe → Letterbox-Balken)
+    width: 960,
+    height: 540,
+    // 960×540 (16:9) soll der INHALT sein (sonst klaut die Titelleiste Höhe → Letterbox-Balken)
     useContentSize: true,
     backgroundColor: '#000000',
     autoHideMenuBar: true,
@@ -21,8 +23,8 @@ function createWindows() {
     // komplett verdeckt oder minimiert ist
     webPreferences: { contextIsolation: true, nodeIntegration: false, preload, backgroundThrottling: false },
   });
-  // Beim manuellen Resizen 9:16 halten — im Fenstermodus keine schwarzen Balken
-  wall.setAspectRatio(9 / 16);
+  // Beim manuellen Resizen 16:9 halten — im Fenstermodus keine schwarzen Balken
+  wall.setAspectRatio(16 / 9);
   wall.loadFile(path.join(rendererDir, 'wall.html'));
 
   // Steuerung für den Operator
@@ -94,6 +96,13 @@ function createWindows() {
   });
 }
 
+// NDI: RGBA-Frames (mit Alpha) aus dem Wall-Renderer ins Netz senden.
+// Eigener Kanal — die Frames sind groß (~9 MB) und sollen nicht durch
+// die 'msg'-Vermittlung laufen.
+ipcMain.on('ndi-frame', (_event, frame: NdiFrame) => {
+  void ndi.pushFrame(frame);
+});
+
 // Nachrichten zwischen Operator- und Wall-Fenster vermitteln
 ipcMain.on('msg', (event, msg: { type?: string }) => {
   if (msg?.type === 'wall-fullscreen') {
@@ -104,10 +113,24 @@ ipcMain.on('msg', (event, msg: { type?: string }) => {
   if (target && !target.isDestroyed()) target.webContents.send('msg', msg);
 });
 
-app.whenReady().then(() => {
-  createWindows();
-});
+// Nur EINE Instanz: eine zweite würde sich mit der ersten um die
+// NDI-Sendernamen prügeln (NDI erlaubt pro Rechner nur eine Quelle je Name)
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    // Doppelstart: vorhandene Fenster nach vorn holen statt neu zu starten
+    operator?.focus();
+  });
+  app.whenReady().then(() => {
+    createWindows();
+  });
+}
 
 app.on('window-all-closed', () => {
   app.quit();
+});
+
+app.on('will-quit', () => {
+  ndi.destroy();
 });

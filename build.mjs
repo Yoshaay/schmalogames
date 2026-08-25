@@ -7,7 +7,8 @@ await esbuild.build({
   bundle: true,
   platform: 'node',
   format: 'cjs',
-  external: ['electron'],
+  // grandi: ESM + natives NDI-Addon — wird zur Laufzeit aus node_modules geladen
+  external: ['electron', 'grandi'],
   outdir: 'dist/main',
 });
 

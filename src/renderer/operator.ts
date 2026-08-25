@@ -13,7 +13,7 @@ for (const entry of games) {
   const btn = document.createElement('button');
   btn.className = 'game-btn';
   btn.dataset.id = entry.id;
-  btn.textContent = `▶ ${entry.title}`;
+  btn.textContent = entry.title;
   // Beschreibung nur als Tooltip — die Leiste bleibt kompakt
   if (entry.description) btn.title = entry.description;
   btn.onclick = () => window.bus.send({ type: 'start', gameId: entry.id });
@@ -22,15 +22,23 @@ for (const entry of games) {
 
 $('stop').onclick = () => window.bus.send({ type: 'stop' });
 $('fullscreen').onclick = () => window.bus.send({ type: 'wall-fullscreen' });
-// Debug-Werkzeug in der Kopfzeile — bewusst kein Hotkey, weit weg von den Show-Buttons
-$('syncdebug').onclick = () => window.bus.send({ type: 'action', id: 'syncdebug' });
+// Stanzmaske: Wall sendet die Alphamaske des laufenden Spiels statt der Grafik
+// (Key-Abgriff für den Ü-Wagen). Zustand kommt über die State-Nachricht zurück.
+let maskOn = false;
+$('mask').onclick = () => window.bus.send({ type: 'mask', on: !maskOn });
+// NDI-Framerate — Wert lebt (persistiert) im Wall-Fenster, State synct zurück
+($('ndifps') as HTMLSelectElement).onchange = (e) =>
+  window.bus.send({ type: 'ndi-fps', fps: Number((e.target as HTMLSelectElement).value) });
+// Fenster-Stream: welchen der beiden Wall-Streams das HDMI-Fallback-Fenster zeigt
+let winView: 'L' | 'R' = 'L';
+$('winview').onclick = () => window.bus.send({ type: 'winview', view: winView === 'L' ? 'R' : 'L' });
 
 // ---------- Live-Vorschau (WebRTC vom Wall-Fenster) ----------
 let previewPC: RTCPeerConnection | null = null;
 let previewPendingIce: RTCIceCandidateInit[] = [];
 let previewRemoteSet = false;
 
-async function acceptPreviewOffer(sdp: string) {
+async function acceptPreviewOffer(sdp: string, streamL?: string, streamR?: string) {
   previewPC?.close();
   previewPendingIce = [];
   previewRemoteSet = false;
@@ -38,7 +46,10 @@ async function acceptPreviewOffer(sdp: string) {
   const pc = new RTCPeerConnection();
   previewPC = pc;
   pc.ontrack = (e) => {
-    ($('preview') as HTMLVideoElement).srcObject = e.streams[0];
+    // Zuordnung über die MediaStream-IDs aus dem Offer (Wall L / Wall R)
+    const stream = e.streams[0];
+    const video = stream.id === streamR ? $('preview-r') : $('preview-l');
+    (video as HTMLVideoElement).srcObject = stream;
   };
   pc.onicecandidate = (e) => {
     if (e.candidate) window.bus.send({ type: 'rtc-ice', candidate: e.candidate.toJSON() });
@@ -252,17 +263,27 @@ interface StateMsg {
   gameId: string | null;
   settings: Record<string, number>;
   status: Record<string, string | number>;
+  mask?: boolean;
+  ndiFps?: number;
+  winView?: 'L' | 'R';
 }
 
 window.bus.onMessage((raw) => {
-  const anyMsg = raw as { type: string; sdp?: string; candidate?: RTCIceCandidateInit; fullscreen?: boolean };
+  const anyMsg = raw as {
+    type: string;
+    sdp?: string;
+    candidate?: RTCIceCandidateInit;
+    fullscreen?: boolean;
+    streamL?: string;
+    streamR?: string;
+  };
   if (anyMsg.type === 'wall-ready') {
     // Wall-Fenster (neu) gestartet — Vorschau-Verbindung anfordern
     window.bus.send({ type: 'preview-ready' });
     return;
   }
   if (anyMsg.type === 'rtc-offer' && anyMsg.sdp) {
-    acceptPreviewOffer(anyMsg.sdp);
+    acceptPreviewOffer(anyMsg.sdp, anyMsg.streamL, anyMsg.streamR);
     return;
   }
   if (anyMsg.type === 'rtc-ice' && anyMsg.candidate) {
@@ -284,13 +305,26 @@ window.bus.onMessage((raw) => {
   }
   if (anyMsg.type === 'wall-fullscreen-state') {
     const btn = $('fullscreen') as HTMLButtonElement;
-    btn.textContent = anyMsg.fullscreen ? 'Vollbild verlassen ⛶' : 'Wall-Vollbild ⛶';
+    btn.textContent = anyMsg.fullscreen ? 'Vollbild verlassen' : 'Wall-Vollbild';
     btn.classList.toggle('fullscreen-on', anyMsg.fullscreen === true);
     return;
   }
 
   const msg = raw as StateMsg;
   if (msg.type !== 'state') return;
+
+  maskOn = msg.mask === true;
+  const maskBtn = $('mask') as HTMLButtonElement;
+  maskBtn.textContent = maskOn ? 'Stanzmaske AKTIV' : 'Stanzmaske';
+  maskBtn.classList.toggle('mask-on', maskOn);
+
+  const fpsSel = $('ndifps') as HTMLSelectElement;
+  if (msg.ndiFps && document.activeElement !== fpsSel) fpsSel.value = String(msg.ndiFps);
+
+  if (msg.winView) {
+    winView = msg.winView;
+    $('winview').textContent = `Fenster: Wall ${winView}`;
+  }
 
   if (msg.gameId !== activeGameId) {
     activeGameId = msg.gameId;

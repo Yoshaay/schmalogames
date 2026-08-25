@@ -231,13 +231,14 @@
         min-height: 0;
         container-type: size;
         display: flex;
+        gap: 8px;
         align-items: center;
         justify-content: center;
       }
       .preview-frame {
-        /* exakt 9:16 (FHD hochkant), eingepasst in Breite UND Höhe des verfügbaren Raums */
-        width: min(100%, calc(100cqh * 9 / 16));
-        aspect-ratio: 9 / 16;
+        /* exakt 16:9 (FHD) pro Wall, beide nebeneinander in Breite UND Höhe eingepasst */
+        width: min(calc(50% - 4px), calc(100cqh * 16 / 9));
+        aspect-ratio: 16 / 9;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -247,19 +248,24 @@
         overflow: hidden;
         position: relative;
       }
+      .preview-tag {
+        position: absolute;
+        top: 6px;
+        left: 8px;
+        z-index: 1;
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.2em;
+        color: var(--ink-dim);
+        background: rgba(0, 0, 0, 0.55);
+        padding: 2px 6px;
+        border-radius: 3px;
+      }
       .preview-frame video {
         max-width: 100%;
         max-height: 100%;
         display: block;
       }
-      .preview-frame .no-signal {
-        position: absolute;
-        font-family: var(--font-mono);
-        font-size: 12px;
-        letter-spacing: 0.3em;
-        color: #3a3e4c;
-      }
-
       /* ---------- Status (kompakt — alles muss auf den Schirm) ---------- */
       #status {
         display: grid;
@@ -292,15 +298,22 @@
         color: var(--ink-dim);
       }
 
-      /* ---------- Buttons ---------- */
+      /* ---------- Buttons ----------
+         EIN Grundformat für alle Buttons (auch in den Game-Panels): feste
+         Höhe, gleiche Schrift, gleiche Form. Varianten ändern nur Farben. */
       button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        height: 34px;
+        padding: 0 14px;
         font-family: var(--font-body);
-        font-size: 14px;
+        font-size: 13px;
         color: var(--ink);
         background: #1d2029;
         border: 1px solid var(--panel-edge);
         border-radius: 4px;
-        padding: 10px 14px;
         cursor: pointer;
         transition:
           background 0.12s,
@@ -319,10 +332,34 @@
         border-color: rgba(148, 192, 28, 0.4);
         background: rgba(148, 192, 28, 0.1);
       }
+      .ndi-fps {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        letter-spacing: 0.15em;
+        color: var(--ink-dim);
+      }
+      .ndi-fps select {
+        font: inherit;
+        color: inherit;
+        background: #1d2029;
+        border: 1px solid var(--panel-edge);
+        border-radius: 4px;
+        height: 34px;
+        padding: 0 6px;
+        cursor: pointer;
+      }
+
+      /* Maske ist ON AIR sichtbar — deutlich warnen, solange sie aktiv ist */
+      button.mask-on {
+        color: #ff5c5c;
+        border-color: rgba(255, 92, 92, 0.5);
+        background: rgba(255, 92, 92, 0.14);
+      }
 
       .game-btn {
-        font-size: 14px;
-        padding: 9px 16px;
         border-left: 3px solid transparent;
       }
       .game-btn.active {
@@ -365,7 +402,6 @@
       .btn-action .key {
         display: inline-block;
         min-width: 18px;
-        margin-right: 8px;
         font-family: var(--font-mono);
         font-size: 11px;
         color: var(--ink-dim);
@@ -542,15 +578,33 @@
       <h1>SCHMALO<span>GAMES</span></h1>
       <div class="header-sub">Videowall Operator</div>
       <div class="spacer"></div>
-      <button id="syncdebug" title="Beat-Blitz auf der Wall zum Einpegeln des Sync-Offsets">🔧 Sync-Debug</button>
-      <button id="fullscreen">Wall-Vollbild ⛶</button>
+      <label
+        class="ndi-fps"
+        title="Framerate des NDI-Streams. Obergrenze ist der Display-Refresh des Wall-Rechners; 25/50 passt zur Broadcast-Welt, 30/60 läuft auf 60-Hz-Displays ruckelfrei."
+      >
+        NDI
+        <select id="ndifps">
+          <option value="25">25 fps</option>
+          <option value="30" selected>30 fps</option>
+          <option value="50">50 fps</option>
+          <option value="60">60 fps</option>
+        </select>
+      </label>
+      <button
+        id="mask"
+        title="Signal zeigt statt der Grafik die Alphamaske des Spiels (Weiß = Grafik, Schwarz = Live-Bild) — der Ü-Wagen greift sie als Key ab. Schaltet sich bei Spielstart/-stopp selbst aus."
+      >
+        Stanzmaske
+      </button>
+      <button id="winview" title="Welchen der beiden Streams das Wall-Fenster (HDMI-Fallback) zeigt">Fenster: Wall L</button>
+      <button id="fullscreen">Wall-Vollbild</button>
     </header>
 
     <nav id="gamebar">
       <span class="head">Spiele</span>
       <div id="games"></div>
       <div class="spacer"></div>
-      <button class="btn-stop" id="stop">■ Stop — Leerlaufbild</button>
+      <button class="btn-stop" id="stop">Stop — Leerlaufbild</button>
     </nav>
 
     <main>
@@ -560,8 +614,12 @@
           <h2>Vorschau — Videowall</h2>
           <div class="preview-wrap">
             <div class="preview-frame">
-              <span class="no-signal">KEIN SIGNAL</span>
-              <video id="preview" autoplay muted playsinline></video>
+              <span class="preview-tag">WALL L</span>
+              <video id="preview-l" autoplay muted playsinline></video>
+            </div>
+            <div class="preview-frame">
+              <span class="preview-tag">WALL R</span>
+              <video id="preview-r" autoplay muted playsinline></video>
             </div>
           </div>
         </div>

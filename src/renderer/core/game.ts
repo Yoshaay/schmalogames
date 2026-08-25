@@ -49,12 +49,20 @@ export interface SettingDef {
 
 export type SettingValues = Record<string, number>;
 
+/** Die beiden Videowalls (linke/rechte Bühnenseite) — je ein eigener NDI-Stream */
+export type WallView = 'L' | 'R';
+
 export interface Game {
   /** Wird beim Start des Spiels aufgerufen */
   init(ctx: GameContext): void;
   /** dt in Sekunden */
   update(dt: number): void;
   render(g: CanvasRenderingContext2D): void;
+  /** Optional: getrennte Bilder für Wall L und Wall R. Wenn implementiert,
+   *  ruft der Host statt render() pro Frame renderView(g,'L') und
+   *  renderView(g,'R') auf — ohne diese Methode zeigen beide Walls das
+   *  render()-Bild (gespiegelt identisch). */
+  renderView?(g: CanvasRenderingContext2D, view: WallView): void;
   /** Aufräumen (Mikrofon, Timer, ...) beim Verlassen des Spiels */
   dispose?(): void;
   /** Neue Einstellungswerte vom Operator */

@@ -1,4 +1,4 @@
-import { Game, GameContext, SettingValues, VIEW_W, VIEW_H } from '../../core/game';
+import { Game, GameContext, SettingValues, VIEW_W, VIEW_H, WallView } from '../../core/game';
 import { Confetti } from '../../core/confetti';
 import bgUrl from './assets/Applausometer_BG_hoch.png';
 
@@ -145,6 +145,18 @@ export class Applausometer implements Game {
   }
 
   render(g: CanvasRenderingContext2D) {
+    this.renderView(g, 'R');
+  }
+
+  /** Pilot für die getrennte Wall-Bespielung: Wall R trägt das komplette
+   *  Applausometer, Wall L bleibt Live-Bild pur (voll transparent) und
+   *  bekommt nur beim Gewinn den Konfettiregen mit Alpha darübergelegt. */
+  renderView(g: CanvasRenderingContext2D, view: WallView) {
+    if (view === 'L') {
+      this.confetti.render(g);
+      return;
+    }
+
     // Hintergrund-Asset (bis es dekodiert ist: neutrale Fläche)
     if (this.bg.complete && this.bg.naturalWidth) {
       g.drawImage(this.bg, 0, 0, VIEW_W, VIEW_H);
