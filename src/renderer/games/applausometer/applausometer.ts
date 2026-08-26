@@ -11,10 +11,15 @@ type State = 'playing' | 'won';
 // Die weiße Meter-Bahn ist ein spitz zulaufendes Dreieck im grünen Keil,
 // jetzt LINKS: oben breit, linke Kante senkrecht, rechte Kante läuft schräg
 // auf die Spitze unten zu. Gefüllt wird per Clip auf dieses Polygon.
+// Die schräge rechte Kante liegt bewusst 3 px ÜBER der Weiß-Kante im Grün:
+// endet der Clip exakt auf dem Weiß, lässt seine Anti-Aliasing-Feder einen
+// hellen Saum zwischen Füllung und Grün durchscheinen (links passiert das
+// nicht — die senkrechte Kante ist pixel-bündig).
 const SLOT: Array<[number, number]> = [
   [88, 208], // oben links
-  [378, 208], // oben rechts
-  [88, 1435], // Spitze unten
+  [381, 208], // oben rechts (+3 Überdeckung)
+  [91, 1435], // Spitze unten (+3 Überdeckung)
+  [88, 1435], // Spitze, linke Kante
 ];
 // Vertikale Skala = Skalenstriche des Backgrounds
 const SCALE_BOTTOM = 1442;
