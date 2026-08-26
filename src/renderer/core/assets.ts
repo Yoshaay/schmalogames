@@ -5,32 +5,51 @@
  * Beim Skalieren sampelt das Canvas-Filtering in diese Zeilen hinein —
  * ums Bild zieht sich dann eine dunkle Naht, hinter der das Live-Bild
  * durchscheint. Ein Quell-Crop reicht nicht, weil das Filtering auch über
- * den Quellausschnitt hinaus liest. Deshalb: Bild einmalig in einen
- * Offscreen-Canvas kopieren und die äußeren `border` Zeilen/Spalten durch
- * die erste saubere Nachbarzeile ersetzen (unskalierte 1:1-Kopien — bei
- * skaliertem Kopieren würde das Filtering wieder die kaputten Zeilen
- * mitlesen). In ehrlich transparenten Bereichen (Live-Fläche) bleibt die
- * Kante transparent, weil auch die Nachbarzeile dort transparent ist. */
-export function repairEdges(img: HTMLImageElement, border = 2): HTMLCanvasElement {
+ * den Quellausschnitt hinaus liest.
+ *
+ * Repariert wird PIXELGENAU statt zeilenweise: Ein Randpixel wird nur
+ * aufgefüllt, wenn sein innerer Nachbar deckend ist (dann gehört es zur
+ * Fläche und der Export hat es kaputtgemacht). Halbtransparente Pixel an
+ * echten Schräg-Kanten (Keil-/Banner-Spitzen, Live-Flächen) behalten ihr
+ * Anti-Aliasing — zeilenweises Kopieren hatte solche Spitzen blockig
+ * gemacht. Gearbeitet wird von der inneren zur äußeren Randlinie, damit
+ * sich die Reparatur nach außen durchkettet. */
+export function repairEdges(img: HTMLImageElement): HTMLCanvasElement {
   const w = img.naturalWidth;
   const h = img.naturalHeight;
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
-  const g = c.getContext('2d')!;
+  const g = c.getContext('2d', { willReadFrequently: true })!;
   g.drawImage(img, 0, 0);
-  for (let i = 0; i < border; i++) {
-    // obere/untere Zeilen ← erste saubere Zeile
-    g.clearRect(0, i, w, 1);
-    g.drawImage(img, 0, border, w, 1, 0, i, w, 1);
-    g.clearRect(0, h - 1 - i, w, 1);
-    g.drawImage(img, 0, h - 1 - border, w, 1, 0, h - 1 - i, w, 1);
-    // linke/rechte Spalten ← erste saubere Spalte (aus dem schon
-    // zeilen-reparierten Canvas, damit auch die Ecken gefüllt werden)
-    g.clearRect(i, 0, 1, h);
-    g.drawImage(c, border, 0, 1, h, i, 0, 1, h);
-    g.clearRect(w - 1 - i, 0, 1, h);
-    g.drawImage(c, w - 1 - border, 0, 1, h, w - 1 - i, 0, 1, h);
+  const d = g.getImageData(0, 0, w, h);
+  const px = d.data;
+
+  /** Randpixel (x,y) anhand des inneren Nachbarn (ix,iy) auffüllen —
+   *  KOMPLETT übernehmen (Farbe + Alpha): Halbtransparente Randpixel
+   *  tragen oft eine Misch-Farbe aus dem Kanten-Anti-Aliasing; nur das
+   *  Alpha zu heben würde diese Blend-Farbe als deckende Linie sichtbar
+   *  machen. */
+  const fix = (x: number, y: number, ix: number, iy: number) => {
+    const o = (y * w + x) * 4;
+    const i = (iy * w + ix) * 4;
+    if (px[o + 3] >= 250 || px[i + 3] < 250) return;
+    px[o] = px[i];
+    px[o + 1] = px[i + 1];
+    px[o + 2] = px[i + 2];
+    px[o + 3] = 255;
+  };
+
+  for (let k = 1; k >= 0; k--) {
+    for (let x = 0; x < w; x++) {
+      fix(x, k, x, k + 1);
+      fix(x, h - 1 - k, x, h - 2 - k);
+    }
+    for (let y = 0; y < h; y++) {
+      fix(k, y, k + 1, y);
+      fix(w - 1 - k, y, w - 2 - k, y);
+    }
   }
+  g.putImageData(d, 0, 0);
   return c;
 }

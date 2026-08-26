@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { Game, GameContext, SettingValues, VIEW_W, VIEW_H } from '../../core/game';
-import { Confetti } from '../../core/confetti';
 import { repairEdges } from '../../core/assets';
 import { BeatEngine } from '../../core/beat';
 import { Dancer } from './dancer';
@@ -28,9 +27,10 @@ const LAYOUT = {
   // Füße über dem "Tanz mit!"-Schriftzug (Text-BBox y ≈ 1781–1843)
   stage: [300, 1440],
   camZ: 8.0,
-  // Auszeichnung unten rechts über der Livebild-Fläche
-  cheer: [1000, 1800],
-  cheerMaxW: 380,
+  // Auszeichnung ("Tanzmaschine", "Groove-Legende", …) oben über der
+  // Livebild-Fläche, unterhalb des Logo-Banners
+  cheer: [660, 480],
+  cheerMaxW: 700,
   burst: [800, 900],
   // blaue Außenkante des Keils, Dreiecke fliegen nach rechts raus
   edge: [
@@ -38,9 +38,11 @@ const LAYOUT = {
     [862, 1920],
   ],
   emit: [1, 0.12],
-  // Sonar-Ripple: unter der Tänzerin auf dem Keil
-  ripple: [290, 1750],
-  rippleMax: 400,
+  // Sonar-Ripple: Zentrum auf der Körpermitte der Tänzerin (sie steht bei
+  // stage [300, 1440]) — die Ringe laufen HINTER ihr um sie herum, der
+  // Fokus liegt auf der Figur statt auf den Füßen
+  ripple: [300, 1440],
+  rippleMax: 420,
   greenClip: [
     [0, 255],
     [728, 1920],
@@ -90,11 +92,11 @@ const RIPPLE_MIN_R = 40;
  *  (kein Grün — ginge auf dem Grün unter) */
 const RIPPLE_COLORS = ['#2699d6', '#f9b233', '#e71d73'];
 
-/** Auszeichnungen: je ein Operator-Button, togglebar, immer mit Konfetti */
+/** Auszeichnungen: je ein Operator-Button, togglebar */
 export const CHEERS = ['TANZGOTT', 'GROOVE-LEGENDE', 'TANZMASCHINE', 'DISCO-FIEBER'];
 /** Knallfarbe pro Auszeichnung (BR3-Palette), Index parallel zu CHEERS.
  *  Kein Hellgrün — das ginge auf dem grünen Hintergrund unter. */
-const CHEER_COLORS = ['#e71d73', '#2699d6', '#f9b233', '#e71d73'];
+const CHEER_COLORS = ['#e71d73', '#2699d6', '#2699d6', '#e71d73'];
 
 // Ein-/Ausblend-Zeiten der Auszeichnung: Dreieck-Welle von links nach rechts
 const CHEER_IN = 0.65;
@@ -192,8 +194,6 @@ export class Schmalogroove implements Game {
   private cheerTimer = 0;
   /** Anzeigedauer in s (Operator-Regler) */
   private cheerDuration = 5;
-  private confetti = new Confetti();
-  private confettiTimer = 0;
 
   /* ---------- Beat-Dreiecke (Kanten-Emitter) ---------- */
   /** Sonar-Ringe: Alter in s + ob Takt-„1" (kräftig/pink). Pro Sonar eine
@@ -270,15 +270,13 @@ export class Schmalogroove implements Game {
     if (!id.startsWith('cheer')) return;
     const text = CHEERS[Number(id.slice(5))] ?? CHEERS[0];
     if (this.cheer === text) {
-      // Nochmal gedrückt: vorzeitig aus — Zoom-out abspielen, Konfetti regnet aus
+      // Nochmal gedrückt: vorzeitig aus — Zoom-out abspielen
       this.cheerTimer = Math.min(this.cheerTimer, CHEER_OUT);
     } else {
       this.cheer = text;
       this.cheerTimer = this.cheerDuration;
       this.cheerTris = this.makeCheerLayout();
-      // eng hinter dem Oberkörper spawnen — der Avatar verdeckt das Auftauchen
-      this.confetti.burst(180, STAGE_CENTER_X, STAGE_CENTER_Y - 150, 160);
-      this.confettiTimer = 0.7;
+      // bewusst KEIN Konfetti mehr zur Auszeichnung — war dem User zu wild
     }
   }
 
@@ -419,18 +417,10 @@ export class Schmalogroove implements Game {
     for (const r of this.ripples) r.age += dt;
     this.ripples = this.ripples.filter((r) => r.age < RIPPLE_LIFE);
 
-    // Auszeichnung aktiv: Konfetti regnet nach, bis die Zeit abläuft
-    this.confetti.update(dt);
     if (this.cheer) {
       this.cheerTimer -= dt;
       if (this.cheerTimer <= 0) {
         this.cheer = null; // automatisch ausblenden
-      } else {
-        this.confettiTimer -= dt;
-        if (this.confettiTimer <= 0) {
-          this.confettiTimer = 0.7;
-          this.confetti.burst(50, STAGE_CENTER_X, STAGE_CENTER_Y - 150, 160);
-        }
       }
     }
 
@@ -466,10 +456,6 @@ export class Schmalogroove implements Game {
     if (LAYOUT.text && this.textImg.complete && this.textImg.naturalWidth) {
       g.drawImage(this.textImg, 0, 0, VIEW_W, VIEW_H);
     }
-    // Ebene 2: Konfetti HINTER dem Charakter — die Partikel tauchen von
-    // der Silhouette verdeckt auf und werden erst beim Rausfliegen sichtbar
-    this.confetti.render(g);
-
     // Ebene 3: 3D-Szene mit Alpha obendrauf
     this.renderer.render(this.scene, this.camera);
 
