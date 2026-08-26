@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Game, GameContext, SettingValues, VIEW_W, VIEW_H } from '../../core/game';
 import { Confetti } from '../../core/confetti';
+import { repairEdges } from '../../core/assets';
 import { BeatEngine } from '../../core/beat';
 import { Dancer } from './dancer';
 import { MOVE_NAMES } from './moves';
@@ -10,75 +11,43 @@ import { SpeedBurst } from './burst';
 // Mocap-Clips (Mixamo, auf das CC-Modell retargetet) statt prozeduraler
 // Moves. Auf false stellen → prozedurales System.
 const USE_MOCAP_CLIPS = false;
-import bg1Url from './assets/DanceBG_hoch1.png';
-import bg2Url from './assets/DanceBG_hoch2.png';
+import bgUrl from './assets/final/Danceding_hk_bg.png';
+import textUrl from './assets/final/Danceding_hk_text.png';
 
-/** Welcher Hochkant-Hintergrund läuft:
- *  1 = DanceBG_hoch1: grüner Keil rechts (Kante x ≈ 292 oben → 1045 unten),
- *      Avatar steht auf dem Keil unter dem "Tanz mit!"-Schriftzug.
- *  2 = DanceBG_hoch2: grünes Dreieck unten links (Oberkante y ≈ 956 links
- *      → 1905 rechts), Avatar steht klein unten links im Dreieck.
- *  Die transparente Fläche zeigt jeweils das Livebild. */
-const BG_VERSION = 1 as 1 | 2;
-
-/** Layout pro Hintergrund: Avatar-Position, Kamera-Abstand (= Größe),
- *  Auszeichnung (Mitte + max. Textbreite auf dem Grün) und Burst-Zentrum
- *  (freie Bühnenfläche — der Burst liegt UNTER dem HG-Asset, dessen
- *  deckende Flächen maskieren ihn automatisch). */
-const LAYOUTS = {
-  1: {
-    bg: bg1Url,
-    stage: [890, 650],
-    camZ: 6.8,
-    // Auszeichnung unten am Rand, mittig über der transparenten (Alpha-)
-    // Fläche links vom Keil — dort liegt später das Livebild
-    cheer: [520, 1790],
-    cheerMaxW: 700,
-    burst: [350, 960],
-    // Keil-Kante (Emitter für die Beat-Dreiecke) + Flugrichtung (raus = links)
-    edge: [
-      [292, 0],
-      [1045, 1920],
-    ],
-    emit: [-1, 0.12],
-    // Sonar-Ripple: Zentrum tief unter der Tänzerin, Ringe auf die
-    // Grünfläche geclippt
-    ripple: [990, 1500],
-    rippleMax: 420,
-    greenClip: [
-      [292, 0],
-      [1200, 0],
-      [1200, 1920],
-      [1045, 1920],
-    ],
-  },
-  2: {
-    bg: bg2Url,
-    stage: [230, 1580],
-    camZ: 8.0,
-    cheer: [760, 1830],
-    cheerMaxW: 500,
-    burst: [600, 900],
-    // Oberkante des Dreiecks unten links, Dreiecke fliegen nach oben raus
-    edge: [
-      [0, 956],
-      [1200, 1905],
-    ],
-    emit: [0.12, -1],
-    // Sonar-Ripple: rechts neben der Tänzerin auf dem Dreieck
-    ripple: [700, 1700],
-    rippleMax: 400,
-    greenClip: [
-      [0, 956],
-      [1200, 1905],
-      [1200, 1920],
-      [0, 1920],
-    ],
-  },
+/* Finales Danceding-Asset (assets/final): grüner Keil LINKS (Spitze oben
+ * bei y≈255), blaue Kante am Keil, Logo-Banner oben, Livebild rechts.
+ * "Tanz mit!" liegt als eigene Text-Ebene ÜBER den Sonaren (User-Vorgabe:
+ * HG → Sonare → Schrift). Kanten aus dem 641×1025-Export vermessen und
+ * mit ×1,873 in View-Koordinaten umgerechnet.
+ *
+ * Layout: Avatar-Position, Kamera-Abstand (= Größe), Auszeichnung (Mitte +
+ * max. Textbreite) und Burst-Zentrum (freie Bühnenfläche — der Burst liegt
+ * UNTER dem HG-Asset, dessen deckende Flächen maskieren ihn automatisch). */
+const LAYOUT = {
+  text: textUrl,
+  // Füße über dem "Tanz mit!"-Schriftzug (Text-BBox y ≈ 1781–1843)
+  stage: [300, 1440],
+  camZ: 8.0,
+  // Auszeichnung unten rechts über der Livebild-Fläche
+  cheer: [1000, 1800],
+  cheerMaxW: 380,
+  burst: [800, 900],
+  // blaue Außenkante des Keils, Dreiecke fliegen nach rechts raus
+  edge: [
+    [64, 375],
+    [862, 1920],
+  ],
+  emit: [1, 0.12],
+  // Sonar-Ripple: unter der Tänzerin auf dem Keil
+  ripple: [290, 1750],
+  rippleMax: 400,
+  greenClip: [
+    [0, 255],
+    [728, 1920],
+    [0, 1920],
+  ],
 };
-const LAYOUT = LAYOUTS[BG_VERSION];
 
-const bgUrl = LAYOUT.bg;
 const STAGE_CENTER_X = LAYOUT.stage[0];
 const STAGE_CENTER_Y = LAYOUT.stage[1];
 const CAM_Z = LAYOUT.camZ;
@@ -87,9 +56,9 @@ const CHEER_Y = LAYOUT.cheer[1];
 const CHEER_MAX_W = LAYOUT.cheerMaxW;
 const BURST_X = LAYOUT.burst[0];
 const BURST_Y = LAYOUT.burst[1];
-// groß genug, dass die quadratische Canvas-Kante bei BEIDEN Layouts komplett
-// außerhalb der transparenten Fläche liegt (die reicht im Hochkant-Format
-// von ganz oben bis ganz unten) — sonst croppt der Burst sichtbar
+// groß genug, dass die quadratische Canvas-Kante komplett außerhalb der
+// transparenten Fläche liegt (die reicht im Hochkant-Format von ganz oben
+// bis ganz unten) — sonst croppt der Burst sichtbar
 const BURST_SIZE = 2200;
 
 /** Beat-Dreiecke: CI-Partikel, die von der Keilkante wegfliegen, dabei
@@ -106,9 +75,11 @@ const PUMP_ATTACK = 0.08;
 /** Auto-Rotation: Zieldauer pro Move in Sekunden (taktgerecht gerundet) */
 const MOVE_SECONDS = 30;
 
-/** Zweites Sonar aus der Ecke oben rechts: Zentrum exakt auf der Ecke,
- *  sichtbar sind also nur Viertelringe. */
-const CORNER_MAX = 300;
+/** Zweites Sonar oben links: Zentrum auf der Keilspitze am Bildrand — die
+ *  Ringe laufen den breiter werdenden Keil hinunter und sind (wie der
+ *  Ripple) auf die Grünfläche geclippt. */
+const CORNER = [0, 255];
+const CORNER_MAX = 420;
 
 /** Sonar-Ripple: pro Beat ein Ring, der sich ausdehnt und verblasst —
  *  geclippt auf die Grünfläche, damit nichts ins Livebild läuft.
@@ -158,6 +129,10 @@ export class Schmalogroove implements Game {
   /* ---------- Szene ---------- */
   private glCanvas = document.createElement('canvas');
   private bg = new Image();
+  /** BG mit repariertem Export-Rand (siehe core/assets.ts), lazy erzeugt */
+  private bgFixed: HTMLCanvasElement | null = null;
+  /** Schrift-Ebene ("Tanz mit!") — eigene Ebene über den Sonaren */
+  private textImg = new Image();
   /** Zwischenpuffer für die weiße Charakter-Silhouette (Outline) */
   private outlineCanvas = document.createElement('canvas');
   private outlineCtx: CanvasRenderingContext2D | null = null;
@@ -242,6 +217,7 @@ export class Schmalogroove implements Game {
   init(ctx: GameContext) {
     this.ctx = ctx;
     this.bg.src = bgUrl;
+    if (LAYOUT.text) this.textImg.src = LAYOUT.text;
     if (USE_MOCAP_CLIPS) this.dancer.loadMixamoClips(MIXAMO_CLIPS);
     this.buildScene();
     this.engine.onBeat = () => {
@@ -478,14 +454,18 @@ export class Schmalogroove implements Game {
     }
     // Ebene 1: Hintergrund-Asset (transparente Bühnenfläche bleibt durchsichtig
     // fürs Keying im Ü-Wagen)
-    if (this.bg.complete && this.bg.naturalWidth) g.drawImage(this.bg, 0, 0, VIEW_W, VIEW_H);
+    if (!this.bgFixed && this.bg.complete && this.bg.naturalWidth) this.bgFixed = repairEdges(this.bg);
+    if (this.bgFixed) g.drawImage(this.bgFixed, 0, 0, VIEW_W, VIEW_H);
     // Ebene 1.5: Beat-Dreiecke — fliegen von der Keilkante weg, schrumpfen
     // über die Lebenszeit und pulsieren gemeinsam auf dem Beat
     this.renderBeatTris(g);
-    // Ebene 1.6: Sonar-Ripple unter der Tänzerin, auf die Grünfläche geclippt
+    // Ebene 1.6: beide Sonare (unter der Tänzerin + oben an der
+    // Keilspitze), auf die Grünfläche geclippt
     this.renderRipples(g);
-    // Ebene 1.7: zweites Sonar aus der Ecke oben rechts (Viertelringe)
-    this.drawSonarRings(g, VIEW_W, 0, CORNER_MAX, 1);
+    // Ebene 1.8: Schrift-Ebene — bewusst ÜBER den Sonaren (User-Vorgabe)
+    if (LAYOUT.text && this.textImg.complete && this.textImg.naturalWidth) {
+      g.drawImage(this.textImg, 0, 0, VIEW_W, VIEW_H);
+    }
     // Ebene 2: Konfetti HINTER dem Charakter — die Partikel tauchen von
     // der Silhouette verdeckt auf und werden erst beim Rausfliegen sichtbar
     this.confetti.render(g);
@@ -569,6 +549,7 @@ export class Schmalogroove implements Game {
     g.closePath();
     g.clip();
     this.drawSonarRings(g, LAYOUT.ripple[0], LAYOUT.ripple[1], LAYOUT.rippleMax, 0);
+    this.drawSonarRings(g, CORNER[0], CORNER[1], CORNER_MAX, 1);
     g.restore();
   }
 
@@ -597,6 +578,19 @@ export class Schmalogroove implements Game {
     if (!this.beatTris.length) return;
     const pulse = 1 + TRI_PULSE * this.beatPump();
     g.save();
+    // Erst am blauen Rand starten: alles links der Keilkante wird
+    // weggeclippt — die Dreiecke schieben sich aus der Kante heraus,
+    // statt beim Spawnen über Blau/Grün zu liegen
+    const [a, b] = LAYOUT.edge;
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    g.beginPath();
+    g.moveTo(a[0] - dx, a[1] - dy);
+    g.lineTo(b[0] + dx, b[1] + dy);
+    g.lineTo(b[0] + dx + 3000, b[1] + dy);
+    g.lineTo(a[0] - dx + 3000, a[1] - dy);
+    g.closePath();
+    g.clip();
     for (const t of this.beatTris) {
       const u = t.life / t.maxLife; // 1 → 0
       const r = t.r * u * pulse;
