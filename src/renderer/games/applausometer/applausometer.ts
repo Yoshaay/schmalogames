@@ -1,27 +1,26 @@
-import { Game, GameContext, SettingValues, VIEW_W, VIEW_H, WallView } from '../../core/game';
+import { Game, GameContext, SettingValues, VIEW_W, VIEW_H } from '../../core/game';
 import { Confetti } from '../../core/confetti';
-import bgUrl from './assets/Applausometer_BG_hoch.png';
+import { repairEdges } from '../../core/assets';
+import bgUrl from './assets/final/Applausemeter_hk_bg.png';
+import textUrl from './assets/final/Applausometer_hk_text.png';
 
 type State = 'playing' | 'won';
 
-/* Aus dem Hochkant-Asset (Applausometer_BG_hoch.png, 641×1025) vermessen und
- * mit dem Cover-Faktor 1920/1025 in View-Koordinaten umgerechnet: */
-// Die weiße Meter-Bahn ist ein spitz zulaufendes Dreieck im grünen Keil:
-// oben breit, rechte Kante senkrecht, linke Kante läuft schräg auf die
-// Spitze unten zu. Gefüllt wird per Clip auf dieses Polygon.
+/* Aus dem finalen Hochkant-Asset (Applausemeter_hk_bg.png, 641×1025) vermessen
+ * und mit dem Cover-Faktor 1920/1025 in View-Koordinaten umgerechnet: */
+// Die weiße Meter-Bahn ist ein spitz zulaufendes Dreieck im grünen Keil,
+// jetzt LINKS: oben breit, linke Kante senkrecht, rechte Kante läuft schräg
+// auf die Spitze unten zu. Gefüllt wird per Clip auf dieses Polygon.
 const SLOT: Array<[number, number]> = [
-  [822, 206], // oben links
-  [1111, 206], // oben rechts
-  [1111, 1540], // Spitze unten
+  [88, 208], // oben links
+  [378, 208], // oben rechts
+  [88, 1435], // Spitze unten
 ];
-const SLOT_RIGHT = 1111;
-/** Linke Schlitzkante auf Höhe y (Steigung der schrägen Kante) */
-const slotLeftAt = (y: number) => 822 + 0.2167 * (y - 206);
 // Vertikale Skala = Skalenstriche des Backgrounds
 const SCALE_BOTTOM = 1442;
-const SCALE_TOP = 206;
-// Mitte der freien (transparenten) Fläche links — Konfetti-Ursprung
-const NUM_X = 400;
+const SCALE_TOP = 214;
+// Mitte der freien (transparenten) Fläche rechts — Konfetti-Ursprung
+const NUM_X = 840;
 
 export class Applausometer implements Game {
   private state: State = 'playing';
@@ -49,10 +48,14 @@ export class Applausometer implements Game {
   private confetti = new Confetti();
   private ctx: GameContext | null = null;
   private bg = new Image();
+  /** BG mit repariertem Export-Rand (siehe core/assets.ts), lazy erzeugt */
+  private bgFixed: HTMLCanvasElement | null = null;
+  private text = new Image();
 
   init(ctx: GameContext) {
     this.ctx = ctx;
     this.bg.src = bgUrl;
+    this.text.src = textUrl;
   }
 
   applySettings(values: SettingValues) {
@@ -144,28 +147,27 @@ export class Applausometer implements Game {
     this.confetti.update(dt);
   }
 
+  // Beide Walls zeigen dasselbe Bild — kein renderView nötig, der Host
+  // spiegelt die linke View automatisch auf die rechte.
   render(g: CanvasRenderingContext2D) {
-    this.renderView(g, 'R');
-  }
-
-  /** Pilot für die getrennte Wall-Bespielung: Wall R trägt das komplette
-   *  Applausometer, Wall L bleibt Live-Bild pur (voll transparent) und
-   *  bekommt nur beim Gewinn den Konfettiregen mit Alpha darübergelegt. */
-  renderView(g: CanvasRenderingContext2D, view: WallView) {
-    if (view === 'L') {
-      this.confetti.render(g);
-      return;
-    }
-
     // Hintergrund-Asset (bis es dekodiert ist: neutrale Fläche)
-    if (this.bg.complete && this.bg.naturalWidth) {
-      g.drawImage(this.bg, 0, 0, VIEW_W, VIEW_H);
+    if (!this.bgFixed && this.bg.complete && this.bg.naturalWidth) {
+      this.bgFixed = repairEdges(this.bg);
+    }
+    if (this.bgFixed) {
+      g.drawImage(this.bgFixed, 0, 0, VIEW_W, VIEW_H);
     } else {
       g.fillStyle = '#94c01c';
       g.fillRect(0, 0, VIEW_W, VIEW_H);
     }
 
     this.renderMeter(g);
+
+    // Schriftzug-Ebene ("Applausometer") über Bahn und Füllung
+    if (this.text.complete && this.text.naturalWidth) {
+      g.drawImage(this.text, 0, 0, VIEW_W, VIEW_H);
+    }
+
     // Bei Gewinn: nur Konfetti, kein Schriftzug
     this.confetti.render(g);
   }
@@ -192,26 +194,24 @@ export class Applausometer implements Game {
       const top = Math.min(this.level, to);
       if (top <= from) continue;
       g.fillStyle = color;
-      g.fillRect(SLOT[0][0], fillBottom - top * fillH, VIEW_W - SLOT[0][0], (top - from) * fillH);
+      g.fillRect(0, fillBottom - top * fillH, SLOT[1][0], (top - from) * fillH);
     }
 
     // Peak-Marker — BR3-Blau statt Dunkel: fast-schwarze Pixel würden
     // beim Luma-Key im Ü-Wagen mit ausgestanzt
     const peakY = fillBottom - this.peak * fillH;
     g.fillStyle = '#2699d6';
-    g.fillRect(SLOT[0][0], peakY - 4, VIEW_W - SLOT[0][0], 8);
-    g.restore();
+    g.fillRect(0, peakY - 4, SLOT[1][0], 8);
 
-    // Grenzwert: gestrichelte Pink-Linie quer über den Schlitz, ragt links
-    // und rechts ein Stück auf das Grün raus (ersetzt das alte Dash-Overlay)
+    // Grenzwert: gestrichelte Pink-Linie — läuft im selben Clip wie die
+    // Füllung und ist damit NUR auf der weißen Bahn sichtbar
     const thrY = fillBottom - this.threshold * fillH;
-    g.save();
     g.strokeStyle = '#e71d73';
     g.lineWidth = 8;
     g.setLineDash([26, 16]);
     g.beginPath();
-    g.moveTo(slotLeftAt(thrY) - 70, thrY);
-    g.lineTo(SLOT_RIGHT + 40, thrY);
+    g.moveTo(0, thrY);
+    g.lineTo(SLOT[1][0], thrY);
     g.stroke();
     g.restore();
   }
