@@ -35,12 +35,24 @@
         --primary: #94c01c;
         --primary-bright: #9be600;
         --primary-deep: #6d8f12;
+        /* --primary als R,G,B-Tripel für rgba()-Abstufungen (Glows, Tints) */
+        --primary-rgb: 148, 192, 28;
         --blue: #2699d6;
         --live: #e71d73;
         --ok: #9be600;
         --font-display: 'TheSans', 'Avenir Next Condensed', 'Futura', 'Arial Narrow', sans-serif;
         --font-mono: 'SF Mono', 'Menlo', 'Monaco', monospace;
         --font-body: 'TheSans', 'Avenir Next', 'Helvetica Neue', sans-serif;
+      }
+
+      /* Sender-Modus BAYERN 1: nur Schmalaoke, Akzent in BAYERN-1-Blau.
+         Alle Akzent-Regeln hängen an --primary/--primary-rgb — der Rest
+         der UI schaltet damit automatisch mit um. */
+      body.mode-b1 {
+        --primary: #00a0d5;
+        --primary-bright: #2fc3f2;
+        --primary-deep: #007aa3;
+        --primary-rgb: 0, 160, 213;
       }
 
       * {
@@ -98,6 +110,33 @@
       }
       .spacer {
         flex: 1;
+      }
+
+      /* ---------- Sender-Umschalter (BAYERN 3 / BAYERN 1) ---------- */
+      .mode-switch {
+        display: flex;
+        border: 1px solid var(--panel-edge);
+        border-radius: 4px;
+        overflow: hidden;
+      }
+      .mode-switch button {
+        height: 28px;
+        padding: 0 12px;
+        border: none;
+        border-radius: 0;
+        background: transparent;
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.14em;
+        color: var(--ink-dim);
+      }
+      .mode-switch button + button {
+        border-left: 1px solid var(--panel-edge);
+      }
+      .mode-switch button.active {
+        background: rgba(var(--primary-rgb), 0.16);
+        color: var(--primary);
+        font-weight: 700;
       }
 
       /* ---------- Layout ---------- */
@@ -341,8 +380,8 @@
       }
       button.fullscreen-on {
         color: var(--primary);
-        border-color: rgba(148, 192, 28, 0.4);
-        background: rgba(148, 192, 28, 0.1);
+        border-color: rgba(var(--primary-rgb), 0.4);
+        background: rgba(var(--primary-rgb), 0.1);
       }
       .ndi-fps {
         display: flex;
@@ -376,7 +415,7 @@
       }
       .game-btn.active {
         border-left-color: var(--primary);
-        background: linear-gradient(90deg, rgba(148, 192, 28, 0.14), transparent 85%);
+        background: linear-gradient(90deg, rgba(var(--primary-rgb), 0.14), transparent 85%);
         color: var(--primary);
       }
 
@@ -393,16 +432,16 @@
         width: 100%;
         margin-bottom: 8px;
         color: var(--primary);
-        border-color: rgba(148, 192, 28, 0.4);
+        border-color: rgba(var(--primary-rgb), 0.4);
         font-weight: 600;
       }
       .btn-action:hover {
-        background: rgba(148, 192, 28, 0.14);
+        background: rgba(var(--primary-rgb), 0.14);
         border-color: var(--primary-deep);
       }
       @keyframes action-hit {
         0% {
-          background: rgba(148, 192, 28, 0.45);
+          background: rgba(var(--primary-rgb), 0.45);
         }
         100% {
           background: transparent;
@@ -574,7 +613,7 @@
         margin-top: -1px;
         background: var(--primary);
         border-radius: 1px;
-        box-shadow: 0 0 6px rgba(148, 192, 28, 0.7);
+        box-shadow: 0 0 6px rgba(var(--primary-rgb), 0.7);
       }
       .fader-label {
         font-family: var(--font-mono);
@@ -589,6 +628,14 @@
     <header>
       <h1>SCHMALO<span>GAMES</span></h1>
       <div class="header-sub">Videowall Operator</div>
+      <div
+        class="mode-switch"
+        id="mode-switch"
+        title="Sender-Modus: BAYERN 3 = alle Spiele, BAYERN 1 = nur Schmalaoke (Akzent in BAYERN-1-Blau)"
+      >
+        <button data-mode="b3" class="active">BAYERN 3</button>
+        <button data-mode="b1">BAYERN 1</button>
+      </div>
       <div class="spacer"></div>
       <label
         class="ndi-fps"

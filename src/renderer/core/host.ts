@@ -1,4 +1,4 @@
-import { Game, GameContext, GameEntry, SettingValues, VIEW_W, VIEW_H, WallView } from './game';
+import { Game, GameContext, GameEntry, SettingValues, StationMode, VIEW_W, VIEW_H, WallView } from './game';
 import { Input } from './input';
 
 /** Ausgabeformat: normales FHD-Signal 16:9 (1920×1080) für die
@@ -20,12 +20,14 @@ const WALL_W = 675;
 const WALL_H = 1080;
 const WALL_X = Math.round((OUT_W - WALL_W) / 2);
 const WALL_Y = Math.round((OUT_H - WALL_H) / 2);
-/** CI-Grün der Umrandung (alles außerhalb der 675×1080-Zone) */
+/** CI-Grün der Umrandung (alles außerhalb der 675×1080-Zone) — BAYERN 3 */
 const FRAME_GREEN = '#94c01c';
-/** Ring zwischen 675×1080-Zone und Nutzbild — showfertig im CI-Grün.
- *  (Zum Einmessen des Crops testweise auf Rot stellen: sobald Rot im
- *  gecroppten Bild auftaucht, sitzt der Crop daneben.) */
-const RING_COLOR = FRAME_GREEN;
+/** Umrandung im BAYERN-1-Modus (Sender-Umschalter im Operator) */
+const FRAME_BLUE = '#00a0d5';
+/** Ring zwischen 675×1080-Zone und Nutzbild — showfertig in der Frame-Farbe.
+ *  (Zum Einmessen des Crops den zweiten fillRect in composite() testweise
+ *  auf Rot stellen: sobald Rot im gecroppten Bild auftaucht, sitzt der
+ *  Crop daneben.) */
 
 /**
  * Läuft im Wall-Fenster (Cleanfeed). Besitzt Canvas und Game-Loop.
@@ -64,6 +66,11 @@ export class GameHost {
    *  Display-Refresh (rAF); krumme Teiler davon juddern minimal — das
    *  glättet der Frame-Sync im Empfänger. */
   private ndiFps = 30;
+  /** Sender-Modus vom Operator — bestimmt die Rahmenfarbe und geht per
+   *  setStationMode() an das laufende Spiel. Aus localStorage vorbelegt
+   *  (gleiche Origin wie das Operator-Fenster), damit ein Wall-Neustart
+   *  nicht kurz im falschen Modus hochkommt. */
+  private stationMode: StationMode = localStorage.getItem('operator.mode') === 'b1' ? 'b1' : 'b3';
   private input = new Input(window);
   private current: Game | null = null;
   private entry: GameEntry | null = null;
@@ -159,6 +166,12 @@ export class GameHost {
       case 'winview':
         this.winView = msg.view === 'R' ? 'R' : 'L';
         localStorage.setItem('wall.winview', this.winView);
+        break;
+      case 'mode':
+        // Sender-Umschalter im Operator: BAYERN 1 färbt den 16:9-Rahmen
+        // blau, und das laufende Spiel darf sein Layout anpassen
+        this.stationMode = msg.mode === 'b1' ? 'b1' : 'b3';
+        this.current?.setStationMode?.(this.stationMode);
         break;
       case 'game':
         // Nachricht vom spielspezifischen Operator-Panel
@@ -265,6 +278,7 @@ export class GameHost {
     this.values = this.loadValues(entry);
     this.current = entry.create();
     this.current.init(this.makeContext());
+    this.current.setStationMode?.(this.stationMode);
     this.current.applySettings?.(this.values);
   }
 
@@ -297,9 +311,8 @@ export class GameHost {
    *  halbtransparente Kanten werden zu Grauwerten = weicher Key). */
   private composite(og: CanvasRenderingContext2D, view: HTMLCanvasElement) {
     og.setTransform(1, 0, 0, 1, 0, 0);
-    og.fillStyle = FRAME_GREEN;
+    og.fillStyle = this.stationMode === 'b1' ? FRAME_BLUE : FRAME_GREEN;
     og.fillRect(0, 0, OUT_W, OUT_H);
-    og.fillStyle = RING_COLOR;
     og.fillRect(WALL_X, WALL_Y, WALL_W, WALL_H);
     if (this.maskMode) {
       this.mg.setTransform(1, 0, 0, 1, 0, 0);

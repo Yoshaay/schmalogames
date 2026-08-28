@@ -20,6 +20,37 @@ for (const entry of games) {
   gamesEl.appendChild(btn);
 }
 
+// ---------- Sender-Modus: BAYERN 3 (alle Spiele) / BAYERN 1 (nur Schmalaoke) ----------
+// Rein eine Operator-Ansichtssache: die Wall kennt keinen Modus. Beim
+// Umschalten wird ein Spiel, das es im Zielmodus nicht gibt, gestoppt.
+type StationMode = 'b3' | 'b1';
+const MODE_GAMES: Record<StationMode, string[]> = {
+  b3: games.map((g) => g.id),
+  b1: ['schmalaoke'],
+};
+let mode: StationMode = localStorage.getItem('operator.mode') === 'b1' ? 'b1' : 'b3';
+
+function applyMode(next: StationMode) {
+  mode = next;
+  localStorage.setItem('operator.mode', mode);
+  // Wall färbt den 16:9-Rahmen passend (BAYERN 1 = Blau statt CI-Grün)
+  window.bus.send({ type: 'mode', mode });
+  document.body.classList.toggle('mode-b1', mode === 'b1');
+  document.querySelectorAll<HTMLButtonElement>('#mode-switch button').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.mode === mode);
+  });
+  document.querySelectorAll<HTMLButtonElement>('.game-btn').forEach((btn) => {
+    btn.hidden = !MODE_GAMES[mode].includes(btn.dataset.id!);
+  });
+  if (activeGameId && !MODE_GAMES[mode].includes(activeGameId)) {
+    window.bus.send({ type: 'stop' });
+  }
+}
+document.querySelectorAll<HTMLButtonElement>('#mode-switch button').forEach((btn) => {
+  btn.onclick = () => applyMode(btn.dataset.mode as StationMode);
+});
+applyMode(mode);
+
 $('stop').onclick = () => window.bus.send({ type: 'stop' });
 $('fullscreen').onclick = () => window.bus.send({ type: 'wall-fullscreen' });
 // Stanzmaske: Wall sendet die Alphamaske des laufenden Spiels statt der Grafik
@@ -279,7 +310,9 @@ window.bus.onMessage((raw) => {
   };
   if (anyMsg.type === 'wall-ready') {
     // Wall-Fenster (neu) gestartet — Vorschau-Verbindung anfordern
+    // und den aktuellen Sender-Modus mitgeben (Rahmenfarbe)
     window.bus.send({ type: 'preview-ready' });
+    window.bus.send({ type: 'mode', mode });
     return;
   }
   if (anyMsg.type === 'rtc-offer' && anyMsg.sdp) {

@@ -1,7 +1,7 @@
-import { Game, GameContext, VIEW_W, VIEW_H } from '../../core/game';
+import { Game, GameContext, StationMode, VIEW_W, VIEW_H } from '../../core/game';
 import { BeatEngine } from '../../core/beat';
 import { LRCParser } from './lrc-parser';
-import bgUrl from './assets/KaraokeBG_hoch.png';
+import bgUrl from './assets/final/Untertitel_BG_v2.png';
 
 /**
  * Schmalaoke — Karaoke-Lyrics-Player als Schmalogames-Slot.
@@ -9,18 +9,19 @@ import bgUrl from './assets/KaraokeBG_hoch.png';
  * Backup unangetastet): State-Machine aus main.js, die Conveyor-Belt-
  * Animation aus player.js/player.css hier als Canvas-Nachbau.
  *
- * Steuerung kommt komplett aus dem Operator-Panel (Space/Pfeile/N/Home,
+ * Steuerung kommt komplett aus dem Operator-Panel (Space/Pfeile/N/R,
  * Playlist, Sprungpunkte). Die Wall zeigt nur Logo bzw. Lyrics.
  */
 
 /** Nachrichten vom Operator-Panel */
 interface Cmd {
-  cmd: 'song' | 'space' | 'prev' | 'nextsong' | 'restart' | 'jump' | 'reset' | 'auto' | 'micdev' | 'hello' | 'bpmreset';
+  cmd: 'song' | 'space' | 'prev' | 'nextsong' | 'restart' | 'jump' | 'reset' | 'auto' | 'micdev' | 'hello' | 'bpmreset' | 'bpmset';
   name?: string;
   content?: string;
   index?: number;
   enabled?: boolean;
   id?: string;
+  value?: number;
 }
 
 /** Vorlauf: Zeile erscheint N Beats vor ihrem musikalischen Einsatz */
@@ -40,53 +41,51 @@ interface RoleState {
   alpha: number;
 }
 
-/** Anker des Lyric-Blocks: die Farbfläche hängt oben an der Wall und
- *  reicht bis y ≈ 253–343 runter. Der Anker sitzt knapp über der Spitze
- *  des pinken Dreiecks (189, 122), der Text ist horizontal auf die
- *  Bildmitte zentriert. */
-const ANCHOR_Y = 122;
+/** Anker des Lyric-Blocks: vertikale Mitte des pinken Bands im finalen
+ *  Asset (Untertitel_BG_v2) — das Band läuft von y ≈ 204 (linke Spitze)
+ *  bis y ≈ 408 (unterer Zacken), seine Mittellinie liegt fast waagerecht
+ *  bei y ≈ 310. Der Text steht horizontal, keine Rotation: die Ober- und
+ *  Unterkante laufen gegenläufig schräg, die Mitte bleibt gerade. */
+const ANCHOR_Y = 310;
 
-/** Lyric-Layout: horizontal zentriert in der Farbfläche. EINE feste
- *  Schriftgröße für alle Titel. Ab mehr als LYRIC_WRAP_CHARS Zeichen
- *  bricht die Zeile um (an Wortgrenzen); der Block bleibt dabei mittig
- *  auf dem Anker, rutscht also entsprechend hoch. Was trotzdem übersteht,
- *  kappt die Clip-Maske. */
+/** Lyric-Layout: immer EINE Zeile, horizontal zentriert im pinken Band,
+ *  kein Umbruch — Zeilen sind zeichenmäßig unbegrenzt. Wird eine Zeile
+ *  breiter als LYRIC_MAX_W, schrumpft die Schrift proportional, bis sie
+ *  passt (wie der Cheer-Titel im Schmalogroove). LYRIC_X sitzt rechts
+ *  der Bildmitte, weil das Band links spitz zuläuft — 640 ist die
+ *  optische Mitte der Fläche. LYRIC_MAX_W ist so gewählt, dass auch
+ *  Unterlängen am linken, spitz zulaufenden Rand nicht angeschnitten
+ *  werden. */
 const LYRIC_SIZE = 56;
-const LYRIC_WRAP_CHARS = 32;
-const LYRIC_X = VIEW_W / 2;
+const LYRIC_X = 640;
+const LYRIC_MAX_W = 870;
 
-/** Zeile an Wortgrenzen in Häppchen von max. LYRIC_WRAP_CHARS brechen */
-function wrapLyric(text: string): string[] {
-  if (text.length <= LYRIC_WRAP_CHARS) return [text];
-  const rows: string[] = [];
-  let row = '';
-  for (const word of text.split(' ')) {
-    const probe = row ? row + ' ' + word : word;
-    if (probe.length > LYRIC_WRAP_CHARS && row) {
-      rows.push(row);
-      row = word;
-    } else {
-      row = probe;
-    }
-  }
-  if (row) rows.push(row);
-  return rows;
-}
-
-/** Clip-Maske für die Lyrics: Polygon der Farbfläche oben, aus dem
- *  aktuellen Asset (KaraokeBG_hoch, 641×1025) ausgemessen und in
- *  View-Koordinaten umgerechnet (Cover-Faktor 1920/1025).
- *  Die Schrift existiert nur innerhalb dieser Fläche — unabhängig vom
- *  Alpha-Kanal des Hintergrunds, funktioniert also auch mit einem
- *  volldeckenden (z. B. komplett grünen) Asset. */
+/** Clip-Maske für die Lyrics: das pinke Band aus dem finalen Asset
+ *  (final/Untertitel_BG_v2, 641×1025), pixelgenau ausgemessen und in
+ *  View-Koordinaten umgerechnet (Cover-Faktor 1920/1025). Die Schrift
+ *  existiert nur innerhalb dieser Fläche — sie taucht beim Reinfliegen
+ *  an der Oberkante des Bands auf und wird an der Unterkante weggewischt.
+ *  Der grüne Streifen darunter bleibt frei. */
 const LYRIC_CLIP: Array<[number, number]> = [
-  [0, 0],
-  [VIEW_W, 0],
-  [VIEW_W, 343], // rechte Kante der hellgrünen Fläche
-  [590, 253], // Knick Oliv/Hellgrün (flachster Punkt)
-  [47, 296], // Ende der steilen Pink-Kante
-  [0, 343], // linke Unterkante des pinken Dreiecks
+  [79, 204], // linke Spitze des pinken Bands
+  [843, 238], // Knick: Oberkante wird steiler
+  [1006, 258], // Kerbe — tiefster Punkt der Oberkante
+  [1008, 245], // Kerbe — Sprung zurück nach oben
+  [VIEW_W, 255], // Oberkante rechts
+  [VIEW_W, 363], // Unterkante rechts
+  [272, 408], // unterer Zacken (tiefster Punkt)
 ];
+
+/** BAYERN-1-Layout: kein HG-Asset (nur Alpha), die Zeile steht horizontal
+ *  zentriert in der Mitte des unteren Bilddrittels (1280–1920 → 1600).
+ *  Statt des Band-Polygons wischt ein Rechteck um den Anker die ein- und
+ *  ausfliegenden Zeilen weg — schmaler als der Rollen-Hub (±320), damit
+ *  Exits sauber aus der Maske laufen. */
+const B1_ANCHOR_Y = 1600;
+const B1_X = VIEW_W / 2;
+const B1_MAX_W = 1080;
+const B1_CLIP_TOP = B1_ANCHOR_Y - 160;
+const B1_CLIP_H = 320;
 
 /** Vertikaler Durchlauf (abwärts): Zeilen fliegen von oben aus dem Bild
  *  rein und knapp unterhalb der Farbfläche raus (dort wischt die Clip-
@@ -128,7 +127,6 @@ export class Schmalaoke implements Game {
   /* ---------- Song-State (portiert aus main.js) ---------- */
   private parser = new LRCParser();
   private lines: string[] = [];
-  private sections: Array<string | null> = [];
   private currentLine = 0;
   private pendingJump = -1;
   private lyricsModeStarted = false;
@@ -153,12 +151,21 @@ export class Schmalaoke implements Game {
   /** Sicherung: ohne einen einzigen <N>-Tag in der LRC bleibt Auto stumm —
    *  sonst würde der Default (1 Beat/Zeile) die Lyrics durchrattern */
   private autoCapable = false;
+  /** Fest eingetippter BPM-Wert (0 = Mikrofon-Erkennung). Das Grid läuft
+   *  dann rein von der Uhr — ganz ohne Audio-Eingang. */
+  private manualBpm = 0;
   private currentBeatInLine = 0;
   /** Sperrzeit nach manueller Korrektur (ms, Date.now-Basis) */
   private beatCooldownUntil = 0;
 
   /* ---------- Anzeige ---------- */
   private sprites: Sprite[] = [];
+  /** BAYERN-1-Modus: kein HG-Asset, Lyrics im unteren Drittel */
+  private b1 = false;
+
+  setStationMode(mode: StationMode) {
+    this.b1 = mode === 'b1';
+  }
 
   init(ctx: GameContext) {
     this.ctx = ctx;
@@ -209,11 +216,33 @@ export class Schmalaoke implements Game {
         this.setAutoMode(!!msg.enabled);
         break;
       case 'bpmreset':
-        // Erkennung hat sich verrannt: neu einlocken lassen
+        // Erkennung hat sich verrannt bzw. fester Wert soll weg:
+        // zurück zur Mikrofon-Erkennung, neu einlocken lassen
+        this.manualBpm = 0;
         this.engine.reset();
         this.currentBeatInLine = 0;
         this.beatCooldownUntil = 0;
+        if (this.autoMode && !this.listening) this.startListening();
         break;
+      case 'bpmset': {
+        const v = Math.round(msg.value ?? 0);
+        if (v > 0) {
+          // Fester Wert: Mikro freigeben, Grid ab jetzt von der Uhr
+          this.stopListening();
+          this.manualBpm = Math.min(240, Math.max(40, v));
+          this.engine.setBpm(this.manualBpm, performance.now());
+          this.currentBeatInLine = 0;
+          this.beatCooldownUntil = 0;
+        } else {
+          // Feld geleert: zurück zur Mikrofon-Erkennung
+          this.manualBpm = 0;
+          this.engine.reset();
+          this.currentBeatInLine = 0;
+          this.beatCooldownUntil = 0;
+          if (this.autoMode) this.startListening();
+        }
+        break;
+      }
       case 'micdev':
         this.micDeviceId = msg.id && msg.id !== 'default' ? msg.id : null;
         if (this.micDeviceId) localStorage.setItem('schmalaoke.micDevice', this.micDeviceId);
@@ -232,8 +261,13 @@ export class Schmalaoke implements Game {
     this.autoMode = enabled;
     this.currentBeatInLine = 0;
     this.beatCooldownUntil = 0;
-    if (enabled) this.startListening();
-    else this.stopListening();
+    if (enabled) {
+      // Fester BPM-Wert braucht kein Mikro — Grid neu ab jetzt ausrichten
+      if (this.manualBpm > 0) this.engine.setBpm(this.manualBpm, performance.now());
+      else this.startListening();
+    } else {
+      this.stopListening();
+    }
     this.sendPresenter();
   }
 
@@ -282,7 +316,7 @@ export class Schmalaoke implements Game {
   /** Beat vom Audio-Grid: Zähler pro Zeile, bei <N> erreicht → weiterblättern */
   private handleDetectedBeat() {
     const locked = this.isLocked();
-    this.ctx?.sendToOperator({ kind: 'beat', bpm: this.engine.bpm, locked });
+    this.ctx?.sendToOperator({ kind: 'beat', bpm: this.engine.bpm, locked, manual: this.manualBpm > 0 });
     if (!this.autoMode || !this.lyricsModeStarted || this.songEndedDisplayed) return;
     // Song ohne Beat-Tags: Auto greift NICHT ein (nur manuell weiterblättern)
     if (!this.autoCapable) return;
@@ -328,7 +362,7 @@ export class Schmalaoke implements Game {
         : this.lines.length && !this.autoCapable
           ? 'AN — Song ohne Beat-Tags, nur manuell!'
           : this.isLocked()
-            ? `AN · ${Math.round(this.engine.bpm)} BPM · fährt`
+            ? `AN · ${Math.round(this.engine.bpm)} BPM${this.manualBpm > 0 ? ' (fix)' : ''} · fährt`
             : 'AN · lauscht — manuell fahren',
     };
   }
@@ -342,6 +376,9 @@ export class Schmalaoke implements Game {
       this.analyser.getByteFrequencyData(this.freq);
       this.engine.sample(this.freq, now);
       this.engine.update(now, dt);
+    } else if (this.autoMode && this.manualBpm > 0) {
+      // Fester eingetippter BPM-Wert: Grid läuft rein von der Uhr
+      this.engine.update(performance.now(), dt);
     }
 
     // Song-Ende: nach der Auslauf-Animation ans Panel melden (Auto-Next)
@@ -359,7 +396,7 @@ export class Schmalaoke implements Game {
     // echt transparent (Alpha), damit im Ü-Wagen ein Livefeed dahinter
     // gelegt werden kann. Auf der Wall wirkt es weiter schwarz (Fenster-
     // Hintergrund); der Host cleart den Canvas jeden Frame.
-    if (this.bg.complete && this.bg.naturalWidth) {
+    if (!this.b1 && this.bg.complete && this.bg.naturalWidth) {
       this.drawBg(g);
     }
 
@@ -381,12 +418,16 @@ export class Schmalaoke implements Game {
       return !(s.transient && t >= 1);
     });
 
-    // Lyrics innerhalb der Clip-Maske zeichnen: die Schrift wird an der
-    // Polygon-Kante der Farbfläche pixelgenau abgeschnitten
+    // Lyrics innerhalb der Clip-Maske zeichnen: BAYERN 3 = Polygon-Kante
+    // der Farbfläche (pixelgenau), BAYERN 1 = Rechteck ums untere Drittel
     g.save();
     g.beginPath();
-    LYRIC_CLIP.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
-    g.closePath();
+    if (this.b1) {
+      g.rect(0, B1_CLIP_TOP, VIEW_W, B1_CLIP_H);
+    } else {
+      LYRIC_CLIP.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
+      g.closePath();
+    }
     g.clip();
     for (const s of this.sprites) {
       const t = ease((this.time - s.t0) / ANIM_S);
@@ -412,9 +453,9 @@ export class Schmalaoke implements Game {
     ctx.drawImage(this.bg, (VIEW_W - w) / 2, 0, w, h);
   }
 
-  /** Zeile zeichnen — zentriert, feste Größe für alle Titel. Über 44
-   *  Zeichen bricht die Zeile um; der Block zentriert sich um den Anker
-   *  (rutscht bei zwei Zeilen also eine halbe Zeilenhöhe hoch). */
+  /** Zeile zeichnen — immer einzeilig, zentriert auf dem Anker. Zeilen
+   *  breiter als LYRIC_MAX_W werden proportional kleiner skaliert statt
+   *  umzubrechen oder an der Maske zu clippen. */
   private drawLine(g: CanvasRenderingContext2D, text: string, state: RoleState, alpha: number) {
     if (!text || alpha <= 0.01) return;
     g.save();
@@ -424,10 +465,11 @@ export class Schmalaoke implements Game {
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     g.font = `700 ${LYRIC_SIZE}px 'TheSans', system-ui, sans-serif`;
-    const rows = wrapLyric(text);
-    const lineH = LYRIC_SIZE * 1.2;
-    const cy = ANCHOR_Y + state.y - ((rows.length - 1) * lineH) / 2;
-    rows.forEach((r, i) => g.fillText(r, LYRIC_X, cy + i * lineH));
+    const maxW = this.b1 ? B1_MAX_W : LYRIC_MAX_W;
+    const fit = Math.min(1, maxW / Math.max(1, g.measureText(text).width));
+    g.translate(this.b1 ? B1_X : LYRIC_X, (this.b1 ? B1_ANCHOR_Y : ANCHOR_Y) + state.y);
+    g.scale(fit, fit);
+    g.fillText(text, 0, 0);
     g.restore();
   }
 
@@ -435,7 +477,6 @@ export class Schmalaoke implements Game {
 
   private resetForNewSong() {
     this.lines = [];
-    this.sections = [];
     this.currentLine = 0;
     this.pendingJump = -1;
     this.lyricsModeStarted = false;
@@ -457,7 +498,6 @@ export class Schmalaoke implements Game {
       return;
     }
     this.lines = [...this.parser.lyricsLines];
-    this.sections = [...this.parser.sections];
     this.beatCounts = [...this.parser.beatCounts];
     this.autoCapable = this.parser.beatTagged.some(Boolean);
     this.title = this.parser.metadata.ti || name.replace(/\.lrc$/i, '');

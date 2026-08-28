@@ -166,6 +166,17 @@ export class BeatEngine {
     return this.taps.length - 1;
   }
 
+  /** Fester, eingetippter BPM-Wert: manueller Override wie Tap-Tempo,
+   *  aber ohne Taps — das Grid startet einen Beat nach jetzt. */
+  setBpm(bpm: number, nowMs: number) {
+    this.manual = true;
+    this.taps.length = 0;
+    this.bpm = bpm;
+    this.periodMs = 60000 / bpm;
+    this.conf = 1;
+    this.nextBeatAt = nowMs - this.offsetMs + this.periodMs;
+  }
+
   backToAuto() {
     this.manual = false;
     this.taps.length = 0;

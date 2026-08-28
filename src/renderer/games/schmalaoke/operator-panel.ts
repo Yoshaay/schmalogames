@@ -81,15 +81,15 @@ const STYLE = `
     border-bottom: 1px solid #1a1d26; cursor: pointer; font-size: 13px;
   }
   .ka-song:hover { background: #171a22; }
-  .ka-song.active { background: rgba(148, 192, 28, 0.1); }
+  .ka-song.active { background: rgba(var(--primary-rgb), 0.1); }
   .ka-song.dragging { opacity: 0.4; }
   .ka-song.drop-above { box-shadow: inset 0 2px 0 var(--primary); }
   .ka-song.drop-below { box-shadow: inset 0 -2px 0 var(--primary); }
-  .ka-list.dropping { border-color: var(--primary); background: rgba(148, 192, 28, 0.06); }
+  .ka-list.dropping { border-color: var(--primary); background: rgba(var(--primary-rgb), 0.06); }
   .ka-song .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
   .dot-planned { background: #3a3e4c; }
   .dot-loaded { background: #f9b233; }
-  .dot-playing { background: #9be600; }
+  .dot-playing { background: var(--primary-bright); }
   .dot-finished { background: #2699d6; }
   .ka-song .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ka-song .warn { font-size: 11px; }
@@ -105,7 +105,7 @@ const STYLE = `
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .ka-lyric:hover { background: #171a22; }
-  .ka-lyric.current { color: #ffffff; border-left-color: var(--primary); background: rgba(148, 192, 28, 0.08); }
+  .ka-lyric.current { color: #ffffff; border-left-color: var(--primary); background: rgba(var(--primary-rgb), 0.08); }
   .ka-lyric.armed { color: var(--live); border-left-color: var(--live); }
   .ka-lyric .sec {
     font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.1em;
@@ -117,13 +117,19 @@ const STYLE = `
     background: #1d2029; border: 1px solid var(--panel-edge); border-radius: 4px;
     height: 34px; padding: 0 8px;
   }
+  .ka-row input[type='number'] {
+    flex: 0 0 auto; width: 64px; font-family: var(--font-mono); font-size: 11px; color: var(--ink);
+    background: #1d2029; border: 1px solid var(--panel-edge); border-radius: 4px;
+    height: 34px; padding: 0 8px;
+  }
+  .ka-row input[type='number']:focus { border-color: var(--blue); outline: none; }
   .ka-beat {
     width: 12px; height: 12px; border-radius: 50%; background: #3a3e4c;
     display: inline-block; vertical-align: -1px; transition: background 0.05s;
   }
   .ka-btn-wide .ka-beat { margin-right: 8px; }
   /* Ampel: grün = gelockt (Auto fährt), gelb = lauscht (manuell fahren) */
-  .ka-beat.on { background: var(--primary); box-shadow: 0 0 10px rgba(148, 192, 28, 0.8); }
+  .ka-beat.on { background: var(--primary); box-shadow: 0 0 10px rgba(var(--primary-rgb), 0.8); }
   .ka-beat.warn { background: #f9b233; box-shadow: 0 0 10px rgba(249, 178, 51, 0.8); }
 
   /* Leere Setlist: Drop-Hinweis mittig, wie im Original */
@@ -169,7 +175,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
           </div>
           <div class="ka-head">Wiedergabe</div>
           <div class="ka-grid2">
-            <button data-id="restart" title="Song von vorn — Taste Home">Neustart</button>
+            <button data-id="restart" title="Song von vorn — Taste R">Neustart</button>
             <button data-id="next" title="Taste N">Nächster Song</button>
           </div>
           <div class="ka-head" title="Beats zählen die Zeilen weiter — braucht &lt;N&gt;-Tags in der LRC">Auto-Advance · Beat-Sync</div>
@@ -178,6 +184,8 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
             <select data-id="micdev" title="Audio-Eingang für die Beat-Erkennung">
               <option value="default">Standard-Eingang</option>
             </select>
+            <input type="number" data-id="bpminput" min="40" max="240" placeholder="BPM"
+              title="BPM fest eintippen (40–240, Enter setzt) — läuft ohne Mikro. Feld leeren oder Reset: zurück zur Erkennung">
             <span class="ka-meta" data-id="bpm">—</span>
             <button data-id="bpmreset" title="BPM zurücksetzen — Erkennung lockt neu ein">Reset</button>
           </div>
@@ -192,7 +200,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
       </div>
       <div class="ka-status">
         <span data-id="meta">Kein Song geladen.</span>
-        <span class="ka-keys"><kbd>Leertaste</kbd> weiter · <kbd>←</kbd> zurück · <kbd>Home</kbd> Neustart · <kbd>1–9</kbd> Sprungmarke · <kbd>N</kbd> nächster Song</span>
+        <span class="ka-keys"><kbd>Leertaste</kbd> weiter · <kbd>←</kbd> zurück · <kbd>R</kbd> Neustart · <kbd>1–9</kbd> Sprungmarke · <kbd>N</kbd> nächster Song</span>
       </div>
     </div>
   `;
@@ -467,8 +475,36 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     renderAuto();
   };
   micDev.onchange = () => api.send({ cmd: 'micdev', id: micDev.value });
+
+  /* Fester BPM-Wert: eintippen + Enter (oder Feld verlassen) setzt das
+     Beat-Grid ohne Mikrofon. Feld leeren = zurück zur Erkennung. */
+  const bpmInput = container.querySelector<HTMLInputElement>('[data-id="bpminput"]')!;
+  const sendBpm = () => {
+    if (bpmInput.value.trim() === '') {
+      api.send({ cmd: 'bpmset', value: 0 });
+      bpmEl.textContent = autoOn ? 'lauscht …' : '—';
+      return;
+    }
+    const v = Math.round(Number(bpmInput.value));
+    if (!Number.isFinite(v)) {
+      bpmInput.value = '';
+      return;
+    }
+    const clamped = Math.min(240, Math.max(40, v));
+    bpmInput.value = String(clamped);
+    api.send({ cmd: 'bpmset', value: clamped });
+  };
+  bpmInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      sendBpm();
+      bpmInput.blur();
+    }
+  });
+  bpmInput.addEventListener('change', sendBpm);
+
   q('bpmreset').onclick = () => {
     api.send({ cmd: 'bpmreset' });
+    bpmInput.value = '';
     bpmEl.textContent = 'lauscht …';
     beatDot.classList.remove('on', 'warn');
   };
@@ -572,6 +608,8 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     ArrowLeft: 'prev',
     ArrowUp: 'prev',
     KeyN: 'nextsong',
+    // R = Neustart (MacBook-tauglich); Home bleibt für externe Tastaturen
+    KeyR: 'restart',
     Home: 'restart',
   };
 
@@ -629,9 +667,9 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
         lyricsEl.querySelector('.ka-lyric.current')?.scrollIntoView({ block: 'nearest' });
       }
       if (msg.kind === 'beat') {
-        const { bpm, locked } = payload as { bpm: number; locked: boolean };
+        const { bpm, locked, manual } = payload as { bpm: number; locked: boolean; manual?: boolean };
         bpmEl.textContent = locked
-          ? `${Math.round(bpm)} BPM · Auto fährt`
+          ? `${Math.round(bpm)} BPM${manual ? ' fix' : ''} · Auto fährt`
           : bpm > 0
             ? `${Math.round(bpm)} BPM · lockt ein …`
             : 'lauscht …';

@@ -5,7 +5,7 @@ import { buildSchmalaokePanel } from './operator-panel';
 /**
  * Slot-Manifest. Portiert aus der Standalone-App SchmalKaraoke_ALPHA —
  * die bleibt als Backup bestehen, hier lebt die integrierte Kopie.
- * Steuerung: Leertaste/Pfeile/N/Home (Operator-Fenster) + Panel-Buttons.
+ * Steuerung: Leertaste/Pfeile/N/R (Operator-Fenster) + Panel-Buttons.
  */
 export const schmalaokeEntry: GameEntry = {
   id: 'schmalaoke',

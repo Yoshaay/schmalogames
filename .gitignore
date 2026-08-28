@@ -4,3 +4,6 @@ dist/
 
 # TheSans ist lizenziert (LucasFonts/BR) — nicht ins öffentliche Repo
 fonts/
+
+# Songtexte (Urheberrecht) — bleiben lokal
+src/renderer/games/schmalaoke/PopUp26 LRC/

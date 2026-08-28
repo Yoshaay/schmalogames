@@ -52,6 +52,9 @@ export type SettingValues = Record<string, number>;
 /** Die beiden Videowalls (linke/rechte Bühnenseite) — je ein eigener NDI-Stream */
 export type WallView = 'L' | 'R';
 
+/** Sender-Modus (Umschalter im Operator): BAYERN 3 bzw. BAYERN 1 */
+export type StationMode = 'b3' | 'b1';
+
 export interface Game {
   /** Wird beim Start des Spiels aufgerufen */
   init(ctx: GameContext): void;
@@ -71,6 +74,9 @@ export interface Game {
   action?(id: string): void;
   /** Nachricht vom Operator-Panel des Spiels (OperatorPanelApi.send) */
   onMessage?(payload: unknown): void;
+  /** Sender-Modus — der Host ruft das beim Spielstart und bei jedem
+   *  Umschalten auf (z.B. Schmalaoke: anderes Lyrics-Layout in BAYERN 1) */
+  setStationMode?(mode: StationMode): void;
   /** Live-Status fürs Operator-Fenster */
   getStatus?(): Record<string, string | number>;
 }
