@@ -2,7 +2,20 @@
 
 Electron-Tool für Minigames auf einer Videowall — gebaut für den Live-Einsatz
 mit Ü-Wagen. Zwei Fenster: der **Operator** steuert, die **Wall** zeigt den
-Cleanfeed (nur das finale Bild, keine Overlays oder Hilfetexte).
+Cleanfeed (nur das finale Bild, keine Overlays oder Hilfetexte). Ausgespielt
+wird per **NDI** als zwei Quellen („Schmalogames Wall L“/„Wall R“), jeweils
+ein volles FHD-16:9-Signal mit echtem Alpha im Nutzbild; das Wall-Fenster
+dient als HDMI-Fallback.
+
+## Sender-Modus: BAYERN 3 / BAYERN 1
+
+Umschalter im Operator-Header (Wahl wird gemerkt):
+
+- **BAYERN 3** (Standard): alle drei Spiele, Akzent in CI-Grün `#94c01c`.
+- **BAYERN 1**: nur Schmalaoke (läuft beim Umschalten ein anderes Spiel,
+  wird es gestoppt), Akzent und 16:9-Rahmen in BAYERN-1-Blau `#00a0d5`.
+  Schmalaoke zeigt dann kein Hintergrund-Asset (reines Alpha, dahinter
+  liegt das Livebild) und zentriert die Lyrics im unteren Bilddrittel.
 
 ## Schnellstart
 
@@ -54,15 +67,22 @@ tanzt im Takt der Musik.
 ### Schmalaoke
 
 Karaoke-Lyrics-Player (Port der Standalone-App SchmalKaraoke, die als Backup
-weiterexistiert). LRC-Dateien in die Setlist laden, die Wall zeigt die Zeilen
-im Conveyor-Stil (aktuelle groß, nächste klein). Panel als hochkante Sidebar:
+weiterexistiert). LRC-Dateien in die Setlist laden, die Wall zeigt immer
+**eine** Zeile im Conveyor-Stil: In BAYERN 3 läuft sie durch das pinke Band
+des Hintergrund-Assets (Clip-Maske), in BAYERN 1 ohne Asset zentriert im
+unteren Drittel. Panel als hochkante Sidebar:
 
 - **Presenter:** Leertaste blättert, Zeilen-Klick oder Ziffer armiert einen
   Sprung ({Name}-Marken aus der LRC), Leertaste löst ihn aus.
 - **Auto-Advance:** Beat-Erkennung über wählbaren Audio-Eingang zählt Zeilen
   automatisch weiter (`<N>`-Tags = Beats pro Zeile); Space bleibt als
-  Korrektur. Beat-Punkt + BPM im Panel.
+  Korrektur. Beat-Punkt + BPM im Panel. Alternativ **BPM fest eintippen**
+  (40–240, Enter setzt) — das Grid läuft dann von der Uhr, ganz ohne Mikro;
+  Feld leeren oder Reset schaltet zurück auf Erkennung.
 - Song-Ende lädt automatisch den nächsten Song der Setlist.
+- Setlist speichern/laden als JSON (LRC-Inhalte eingebettet). Die
+  Songtexte selbst (`PopUp26 LRC/`) liegen aus Urheberrechtsgründen nicht
+  im Repo.
 
 ## Hotkeys (gelten in beiden Fenstern)
 
@@ -71,16 +91,22 @@ im Conveyor-Stil (aktuelle groß, nächste klein). Panel als hochkante Sidebar:
 | 1–9 | Aktionen des aktiven Spiels (Groove: Cheers + Burst; Schmalaoke: Sprungmarken) |
 | Space / → / ↓ | Schmalaoke: nächste Zeile bzw. Start |
 | ← / ↑ | Schmalaoke: Zeile zurück |
-| N / Home | Schmalaoke: nächster Song / Song-Neustart |
+| N | Schmalaoke: nächster Song |
+| R (oder Home) | Schmalaoke: Song-Neustart |
 | T | Tap-Tempo (Schmalogroove) |
 | F11 | Wall-Vollbild |
 
-## Ü-Wagen / Keying
+## Signalformat / Ü-Wagen
 
-Die Hintergrund-Assets haben transparente Flächen; auf dem Wall-Ausgang sind
-diese **schwarz** — gedacht zum Stanzen (Luma-Key), dahinter liegt dann das
-Livebild (z. B. Publikumscam). Alle Grafikfarben sind key-sicher gewählt
-(nichts Fast-Schwarzes im Vordergrund).
+Jeder der beiden NDI-Streams ist ein komponiertes FHD-16:9-Bild (1920×1080):
+außen die Rahmenfarbe des Sender-Modus (Grün bzw. Blau — Backstage-Monitore
+zeigen den vollen Frame randlos), darin die 675×1080-Zone, mittig das
+640×1024-**Nutzbild** mit echtem Alphakanal. Der Ü-Wagen croppt sich das
+Nutzbild auf die großen Walls und legt das Livebild hinter die Transparenz
+(Fill+Key in einem Stream). NDI-Framerate im Operator-Header wählbar.
+Als Fallback gibt es den Toggle **Stanzmaske** (Luma-Matte statt Nutzbild);
+auf dem HDMI-Wall-Fenster wirkt Transparenz schwarz. Alle Grafikfarben sind
+key-sicher gewählt (nichts Fast-Schwarzes im Vordergrund).
 
 ## Neues Spiel anlegen
 
@@ -98,14 +124,19 @@ einer `index.ts`, die ein `GameEntry` exportiert, plus Eintrag in
   Vorschau (Rundown-Stil) statt unter ihr
 
 Das Spiel selbst implementiert `Game` (`init/update/render` auf einen
-1920×1080-Canvas). Assets (PNG/FBX) einfach importieren — esbuild bündelt sie.
+virtuellen 1200×1920-Canvas, 10:16 Hochformat — der Host skaliert ihn ins
+640×1024-Nutzbild). Optional: `renderView(g, 'L'|'R')` für getrennte Bilder
+pro Wall, `setStationMode()` für Layout-Anpassungen im BAYERN-1-Modus.
+Assets (PNG/FBX) einfach importieren — esbuild bündelt sie.
 
 ## Tech-Notizen
 
 - Electron + esbuild + TypeScript, three.js **gepinnt auf 0.128**
   (Prototyp-Look; r128 braucht `skinning: true` auf SkinnedMesh-Materialien).
 - Die beiden Fenster reden über einen IPC-Bus (`msg`-Relay im Main-Prozess);
-  die Operator-Vorschau ist ein WebRTC-Stream des Wall-Canvas.
+  die Operator-Vorschau streamt beide Wall-Composites per WebRTC.
+- NDI-Ausgabe über das Binding `grandi` (NDI-6-SDK, bringt die libndi mit —
+  kein Setup am Show-Rechner nötig); Senden läuft im Main-Prozess.
 - Einstellungen werden pro Spiel in `localStorage` des Wall-Fensters
   persistiert.
 
