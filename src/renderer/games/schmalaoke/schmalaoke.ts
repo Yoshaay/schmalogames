@@ -36,6 +36,9 @@ const LOCK_CONF = 0.3;
  *  selbst zählt: 1 = Songstart, 2 = bestätigter Einsatz auf dem Beat */
 const ARM_SPACES = 2;
 
+/** Relative Abweichung Erkennung ↔ [bpm:]-Tag, ab der gewarnt wird */
+const BPM_TOLERANCE = 0.08;
+
 /* ---------- Conveyor-Animation (aus player.css, skaliert auf 1080p) ---------- */
 
 type Role = 'current' | 'exitUp' | 'enterBelow' | 'exitDown' | 'enterAbove';
@@ -158,6 +161,9 @@ export class Schmalaoke implements Game {
   /** Fest eingetippter BPM-Wert (0 = Mikrofon-Erkennung). Das Grid läuft
    *  dann rein von der Uhr — ganz ohne Audio-Eingang. */
   private manualBpm = 0;
+  /** Referenztempo aus dem [bpm:]-Tag der LRC (0 = keins) — nur Anzeige/
+   *  Abgleich, setzt nichts von selbst */
+  private refBpm = 0;
   private currentBeatInLine = 0;
   /** Sperrzeit nach manueller Korrektur (ms, Date.now-Basis) */
   private beatCooldownUntil = 0;
@@ -330,6 +336,14 @@ export class Schmalaoke implements Game {
     return this.autoSpaces >= ARM_SPACES;
   }
 
+  /** Erkanntes/festes Tempo weicht mehr als BPM_TOLERANCE vom [bpm:]-Tag
+   *  ab (typisch: halbes/doppeltes Tempo) — die <N>-Tags können dann nicht
+   *  stimmen */
+  private bpmMismatch(): boolean {
+    if (this.refBpm <= 0 || this.engine.bpm <= 0) return false;
+    return Math.abs(this.engine.bpm / this.refBpm - 1) > BPM_TOLERANCE;
+  }
+
   /** Ampel: erst wenn Tempo UND Konfidenz stehen, darf Auto fahren */
   private isLocked(): boolean {
     return this.engine.periodMs > 0 && this.engine.conf >= LOCK_CONF;
@@ -345,6 +359,7 @@ export class Schmalaoke implements Game {
       manual: this.manualBpm > 0,
       armed: this.isArmed(),
       spaces: this.autoSpaces,
+      ref: this.refBpm,
     });
     if (!this.autoMode || !this.lyricsModeStarted || this.songEndedDisplayed) return;
     // Noch keine Freigabe per Leertaste: Grid läuft mit, zählt aber nicht
@@ -395,7 +410,9 @@ export class Schmalaoke implements Game {
           : !this.isArmed()
             ? `AN — wartet auf Leertaste (${this.autoSpaces}/${ARM_SPACES})`
             : this.isLocked()
-              ? `AN · ${Math.round(this.engine.bpm)} BPM${this.manualBpm > 0 ? ' (fix)' : ''} · fährt`
+              ? this.bpmMismatch()
+                ? `AN · ${Math.round(this.engine.bpm)} BPM ≠ Song ${this.refBpm} — passt NICHT!`
+                : `AN · ${Math.round(this.engine.bpm)} BPM${this.manualBpm > 0 ? ' (fix)' : ''} · fährt`
               : 'AN · lauscht — manuell fahren',
     };
   }
@@ -522,6 +539,7 @@ export class Schmalaoke implements Game {
     this.currentBeatInLine = 0;
     this.beatCooldownUntil = 0;
     this.autoSpaces = 0;
+    this.refBpm = 0;
   }
 
   private loadSong(name: string, content: string) {
@@ -534,6 +552,7 @@ export class Schmalaoke implements Game {
     this.lines = [...this.parser.lyricsLines];
     this.beatCounts = [...this.parser.beatCounts];
     this.autoCapable = this.parser.beatTagged.some(Boolean);
+    this.refBpm = this.parser.refBpm;
     this.title = this.parser.metadata.ti || name.replace(/\.lrc$/i, '');
     this.artist = this.parser.metadata.ar || '';
     this.waitingForStart = true;
@@ -692,6 +711,7 @@ export class Schmalaoke implements Game {
       autoMode: this.autoMode,
       autoArmed: this.isArmed(),
       autoSpaces: this.autoSpaces,
+      refBpm: this.refBpm,
     });
   }
 }

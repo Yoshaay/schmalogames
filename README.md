@@ -76,7 +76,11 @@ unteren Drittel. Panel als hochkante Sidebar:
   einen Sprung ({Name}-Marken aus der LRC), Leertaste löst ihn aus. Die
   Textzeilen selbst sind nur Anzeige, nicht klickbar.
 - **Auto-Advance:** Beat-Erkennung über wählbaren Audio-Eingang zählt Zeilen
-  automatisch weiter (`<N>`-Tags = Beats pro Zeile); Space bleibt als
+  automatisch weiter (`<N>`-Tags = Beats pro Zeile; ein `[bpm:162]`-Tag im
+  Kopf der LRC nennt das Tempo, auf das die Takte gebaut sind — das Panel
+  zeigt es als Chip, Klick übernimmt es als festen Wert, und liegt die
+  Erkennung mehr als 8 % daneben, warnt die BPM-Anzeige in Magenta „passt
+  NICHT“); Space bleibt als
   Korrektur. Auto fährt nie von selbst los: nach Einschalten, BPM-Änderung
   oder Songwechsel braucht es **zwei Leertasten** (Songstart + bestätigter
   Einsatz auf dem Beat), erst dann zählt es; bei festem BPM wird das Grid
@@ -87,6 +91,21 @@ unteren Drittel. Panel als hochkante Sidebar:
 - Setlist speichern/laden als JSON (LRC-Inhalte eingebettet). Die
   Songtexte selbst (`PopUp26 LRC/`) liegen aus Urheberrechtsgründen nicht
   im Repo.
+
+## LRC Tapper (Beat-Tags eintappen)
+
+`tools/lrc-tapper.html` — eigenständiges Mini-Tool, direkt im Browser öffnen
+(kein Server nötig). LRC laden, BPM setzen (wird aus dem `[bpm:]`-Tag
+vorbelegt), optional die Song-Datei dazu, dann mit **Leertaste** jede Zeile
+bei ihrem Einsatz tappen; nach der letzten Zeile ein Abschluss-Tap fürs
+Ende. Die Tap-Abstände werden aufs Beat-Raster gerundet (kumulativ, damit
+sich Rundungsfehler nicht aufaddieren) und als `<N>`-Tags in die LRC
+geschrieben — vorhandene `<N>`/`<xxx>`-Platzhalter werden ersetzt, das
+`[bpm:]`-Tag gesetzt. Tabelle zeigt pro Zeile Beats und Abweichung (gelb
+über ¼ Beat, rot bei 0 Beats → wird auf 1 gesetzt). Backspace nimmt den
+letzten Tap zurück, R startet neu, P spielt/pausiert das Audio, Metronom
+zum Einzählen zuschaltbar. Ergebnis herunterladen oder in die
+Zwischenablage kopieren.
 
 ## Hotkeys (gelten in beiden Fenstern)
 

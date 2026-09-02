@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LRC Tapper — Beat-Tags eintappen</title>
+<style>
+  /* Mini-Tool zum Schmalaoke: LRC laden, BPM setzen, Zeilen live mit der
+     Leertaste durchtappen — die Abstände werden aufs Beat-Raster gerundet
+     und als <N>-Tags in die LRC geschrieben. Läuft in jedem Chrome/Safari,
+     braucht keinen Server (Datei einfach öffnen). */
+  :root {
+    --bg: #0e0f13; --panel: #16181f; --edge: #262a35; --ink: #e8e9ee; --dim: #8b90a0;
+    --primary: #94c01c; --live: #e71d73; --blue: #2699d6; --warn: #f9b233;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.4 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    min-height: 100vh; display: flex; flex-direction: column;
+  }
+  header { display: flex; align-items: baseline; gap: 14px; padding: 14px 22px; border-bottom: 1px solid var(--edge); }
+  header h1 { margin: 0; font-size: 16px; letter-spacing: 0.12em; text-transform: uppercase; }
+  header .sub { color: var(--dim); font-size: 12px; }
+  header .spacer { flex: 1; }
+  main { flex: 1; display: grid; grid-template-columns: 380px 1fr; gap: 16px; padding: 16px 22px 22px; min-height: 0; }
+  .panel { background: var(--panel); border: 1px solid var(--edge); border-radius: 6px; padding: 14px; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+  .panel h2 { margin: 0; font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); }
+  .col { display: flex; flex-direction: column; gap: 16px; min-height: 0; }
+  label.row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  label.row span.k { color: var(--dim); min-width: 90px; }
+  input[type=number], input[type=text] {
+    background: #0f1116; color: var(--ink); border: 1px solid var(--edge); border-radius: 4px;
+    padding: 6px 8px; font-family: var(--mono); font-size: 13px; width: 90px;
+  }
+  input:focus { outline: none; border-color: var(--blue); }
+  button {
+    background: #1d2029; color: var(--ink); border: 1px solid var(--edge); border-radius: 4px;
+    padding: 8px 12px; font-size: 13px; cursor: pointer;
+  }
+  button:hover { border-color: var(--dim); }
+  button:disabled { opacity: 0.4; cursor: default; }
+  button.primary { background: var(--primary); color: #101403; border-color: var(--primary); font-weight: 700; }
+  button.live { background: var(--live); color: #fff; border-color: var(--live); font-weight: 700; }
+  .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  .drop {
+    border: 1px dashed var(--edge); border-radius: 6px; padding: 14px; text-align: center; color: var(--dim);
+    font-size: 13px; cursor: pointer;
+  }
+  .drop.over { border-color: var(--primary); color: var(--ink); }
+  .meta { font-family: var(--mono); font-size: 12px; color: var(--dim); white-space: pre-line; }
+  .kbd { font-family: var(--mono); font-size: 11px; background: #0f1116; border: 1px solid var(--edge); border-radius: 3px; padding: 1px 5px; color: var(--ink); }
+  .hint { color: var(--dim); font-size: 12px; line-height: 1.5; }
+
+  /* Tap-Bühne: große aktuelle Zeile, Vor- und Nachzeile klein */
+  .stage { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 10px; min-height: 220px; text-align: center; padding: 10px; }
+  .stage .prev, .stage .next { color: var(--dim); font-size: 16px; min-height: 22px; }
+  .stage .cur { font-size: clamp(22px, 3.2vw, 40px); font-weight: 700; line-height: 1.2; min-height: 48px; }
+  .stage .cur .sec { color: var(--blue); font-family: var(--mono); font-size: 0.5em; display: block; letter-spacing: 0.1em; }
+  .stage .idle { color: var(--dim); font-size: 18px; }
+  .stage .end { color: var(--live); }
+  .progress { height: 4px; background: #0f1116; border-radius: 2px; overflow: hidden; }
+  .progress > div { height: 100%; background: var(--primary); width: 0; transition: width 0.1s; }
+  .beatdot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #2a2e37; vertical-align: middle; margin-right: 6px; }
+  .beatdot.on { background: var(--primary); box-shadow: 0 0 8px var(--primary); }
+  .beatdot.one { background: var(--live); box-shadow: 0 0 8px var(--live); }
+
+  /* Ergebnis-Tabelle */
+  .result { flex: 1; overflow: auto; min-height: 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; font-family: var(--mono); }
+  th, td { text-align: left; padding: 3px 8px; border-bottom: 1px solid #1e222c; white-space: nowrap; }
+  th { color: var(--dim); font-weight: normal; position: sticky; top: 0; background: var(--panel); }
+  td.txt { white-space: normal; font-family: inherit; }
+  td.beats { color: var(--primary); font-weight: 700; }
+  tr.warn td.beats, tr.warn td.dev { color: var(--warn); }
+  tr.bad td.beats, tr.bad td.dev { color: var(--live); }
+  tr.cur td { background: rgba(148, 192, 28, 0.08); }
+  audio { width: 100%; }
+</style>
+</head>
+<body>
+<header>
+  <h1>LRC Tapper</h1>
+  <span class="sub">Beat-Tags für Schmalaoke live eintappen</span>
+  <span class="spacer"></span>
+  <span class="hint"><span class="kbd">Space</span> Tap · <span class="kbd">⌫</span> zurück · <span class="kbd">P</span> Play/Pause · <span class="kbd">R</span> neu</span>
+</header>
+<main>
+  <div class="col">
+    <div class="panel">
+      <h2>1 · LRC</h2>
+      <div class="drop" id="lrcdrop">LRC hierher ziehen oder klicken</div>
+      <input type="file" id="lrcfile" accept=".lrc,.txt" hidden>
+      <div class="meta" id="lrcmeta">—</div>
+    </div>
+    <div class="panel">
+      <h2>2 · Tempo</h2>
+      <label class="row"><span class="k">BPM</span><input type="number" id="bpm" min="40" max="240" placeholder="—"> <span class="hint" id="bpmsrc"></span></label>
+      <div class="hint">Das Tempo, auf das die Takte gebaut werden — landet als <code>[bpm:]</code>-Tag in der LRC. Wird aus der Datei vorbelegt, wenn ein Tag drin ist.</div>
+      <label class="row"><span class="k">Metronom</span><input type="checkbox" id="click"> <span class="hint">Klick auf jedem Beat (zum Einzählen ohne Audio)</span></label>
+    </div>
+    <div class="panel">
+      <h2>3 · Audio (optional)</h2>
+      <div class="drop" id="audiodrop">Song-Datei hierher ziehen oder klicken</div>
+      <input type="file" id="audiofile" accept="audio/*" hidden>
+      <audio id="audio" controls hidden></audio>
+      <div class="hint">Mit Audio wird auf der Song-Uhr getappt (präziser, pausierbar). Ohne Audio läuft eine Stoppuhr ab dem ersten Tap.</div>
+      <label class="row" id="tsrow" hidden><input type="checkbox" id="rewritets"> <span class="hint">Zeitstempel <code>[mm:ss.xx]</code> aus den Taps neu schreiben</span></label>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="panel" style="flex: 1 1 55%">
+      <h2>4 · Tappen <span id="beatdot" class="beatdot"></span><span class="hint" id="clock"></span></h2>
+      <div class="progress"><div id="bar"></div></div>
+      <div class="stage" id="stage"><div class="idle">LRC laden, BPM setzen, dann mit <span class="kbd">Space</span> die erste Zeile starten.</div></div>
+      <div class="btns">
+        <button id="tap" class="primary" disabled>Tap (Space)</button>
+        <button id="undo" disabled>Zurück (⌫)</button>
+        <button id="restart" disabled>Neu (R)</button>
+      </div>
+    </div>
+    <div class="panel" style="flex: 1 1 45%">
+      <h2>5 · Ergebnis</h2>
+      <div class="result"><table id="table"><thead><tr><th>#</th><th>Beats</th><th>Abw.</th><th>Zeit</th><th>Text</th></tr></thead><tbody></tbody></table></div>
+      <div class="meta" id="summary">—</div>
+      <div class="btns">
+        <button id="download" class="live" disabled>LRC herunterladen</button>
+        <button id="copy" disabled>In Zwischenablage</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+
+  // ---------- Zustand ----------
+  let fileName = 'song.lrc';
+  let rawLines = [];      // Originaldatei zeilenweise
+  let lines = [];         // { idx (Zeile in rawLines), text, section, ts }
+  let taps = [];          // Tap-Zeiten in ms (Song-Uhr oder Stoppuhr), Länge = lines.length + 1 wenn fertig
+  let clockStart = 0;     // Stoppuhr-Start (ohne Audio)
+  let audioUrl = null;
+  let result = null;      // { beats[], dev[], grid[] }
+
+  const audio = $('audio');
+  const bpmInput = $('bpm');
+  const hasAudio = () => !!audioUrl;
+  const bpm = () => {
+    const v = Math.round(Number(bpmInput.value));
+    return Number.isFinite(v) && v >= 40 && v <= 240 ? v : 0;
+  };
+  const beatMs = () => 60000 / bpm();
+
+  // ---------- LRC laden ----------
+  function parseLrc(text) {
+    rawLines = text.replace(/\r\n?/g, '\n').split('\n');
+    lines = [];
+    let ref = 0;
+    rawLines.forEach((raw, idx) => {
+      const meta = raw.match(/^\[([a-z]+):\s*(.*)\]$/i);
+      if (meta && meta[1].toLowerCase() === 'bpm') {
+        const v = Math.round(Number(meta[2]));
+        if (Number.isFinite(v) && v >= 40 && v <= 240) ref = v;
+        return;
+      }
+      const m = raw.match(/^\[(\d+):(\d+)\.(\d+)\](.*)$/);
+      if (!m) return;
+      const frac = m[3];
+      const ts = (Number(m[1]) * 60 + Number(m[2])) * 1000 + Math.round(Number(frac) * Math.pow(10, 3 - frac.length));
+      // Führende Tags (in beliebiger Reihenfolge) abknabbern: <N|xxx> und {Name}
+      let rest = m[4];
+      let section = null;
+      for (;;) {
+        let t;
+        if ((t = rest.match(/^\s*<[^>]*>\s*/))) rest = rest.slice(t[0].length);
+        else if ((t = rest.match(/^\s*\{([^}]*)\}\s*/))) { section = t[1].trim() || section; rest = rest.slice(t[0].length); }
+        else break;
+      }
+      lines.push({ idx, text: rest.trim(), section, ts });
+    });
+    return ref;
+  }
+
+  function loadLrcFile(file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      fileName = file.name;
+      const ref = parseLrc(String(reader.result));
+      const ti = (rawLines.find((l) => /^\[ti:/i.test(l)) || '').replace(/^\[ti:\s*|\]$/gi, '');
+      const ar = (rawLines.find((l) => /^\[ar:/i.test(l)) || '').replace(/^\[ar:\s*|\]$/gi, '');
+      $('lrcmeta').textContent = `${file.name}\n${ar ? ar + ' – ' : ''}${ti}\n${lines.length} Zeilen`;
+      if (ref) { bpmInput.value = String(ref); $('bpmsrc').textContent = 'aus [bpm:]-Tag'; }
+      else { $('bpmsrc').textContent = 'kein [bpm:]-Tag — bitte eintragen'; }
+      resetTaps();
+    };
+    reader.readAsText(file);
+  }
+
+  function loadAudioFile(file) {
+    if (audioUrl) URL.revokeObjectURL(audioUrl);
+    audioUrl = URL.createObjectURL(file);
+    audio.src = audioUrl;
+    audio.hidden = false;
+    $('audiodrop').textContent = file.name;
+    $('tsrow').hidden = false;
+    resetTaps();
+  }
+
+  function wireDrop(dropId, inputId, onFile) {
+    const drop = $(dropId), input = $(inputId);
+    drop.onclick = () => input.click();
+    input.onchange = () => { if (input.files[0]) onFile(input.files[0]); input.value = ''; };
+    drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('over'); };
+    drop.ondragleave = () => drop.classList.remove('over');
+    drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); const f = e.dataTransfer.files[0]; if (f) onFile(f); };
+  }
+  wireDrop('lrcdrop', 'lrcfile', loadLrcFile);
+  wireDrop('audiodrop', 'audiofile', loadAudioFile);
+
+  // ---------- Tappen ----------
+  const now = () => (hasAudio() ? audio.currentTime * 1000 : performance.now() - clockStart);
+
+  function resetTaps() {
+    taps = [];
+    result = null;
+    clockStart = 0;
+    render();
+  }
+
+  function tap() {
+    if (!lines.length || !bpm()) return;
+    if (taps.length > lines.length) return; // fertig
+    if (!hasAudio() && taps.length === 0) clockStart = performance.now();
+    if (hasAudio() && audio.paused && taps.length === 0) audio.play();
+    taps.push(now());
+    if (taps.length === lines.length + 1) {
+      compute();
+      if (hasAudio()) audio.pause();
+    }
+    render();
+  }
+
+  function undo() {
+    if (!taps.length) return;
+    taps.pop();
+    result = null;
+    render();
+  }
+
+  // Beats pro Zeile aufs Raster normalisieren: jeder Tap wird auf den
+  // nächsten Beat des Rasters (ab dem ersten Tap) gerundet, die Differenz
+  // benachbarter Rasterpunkte ist die Beat-Zahl. So akkumulieren sich
+  // Rundungsfehler NICHT — ein zu früher Tap wird von der nächsten Zeile
+  // wieder ausgeglichen.
+  function compute() {
+    const b = beatMs();
+    const grid = taps.map((t) => Math.round((t - taps[0]) / b));
+    const dev = taps.map((t, i) => (t - taps[0]) / b - grid[i]);
+    const beats = [];
+    for (let i = 0; i < lines.length; i++) beats.push(grid[i + 1] - grid[i]);
+    result = { beats, dev, grid };
+  }
+
+  // ---------- Ausgabe ----------
+  function buildLrc() {
+    const out = rawLines.slice();
+    const rewriteTs = hasAudio() && $('rewritets').checked;
+    lines.forEach((ln, i) => {
+      const n = Math.max(1, result.beats[i]);
+      const tsMs = rewriteTs ? Math.round(taps[i]) : ln.ts;
+      const mm = String(Math.floor(tsMs / 60000)).padStart(2, '0');
+      const ss = String(Math.floor((tsMs % 60000) / 1000)).padStart(2, '0');
+      const cc = String(Math.round((tsMs % 1000) / 10) % 100).padStart(2, '0');
+      const sec = ln.section ? `{${ln.section}}` : '';
+      out[ln.idx] = `[${mm}:${ss}.${cc}]<${n}>${sec}${ln.text}`;
+    });
+    // [bpm:]-Tag setzen bzw. ersetzen (nach [ar:] oder [ti:], sonst oben)
+    const tag = `[bpm:${bpm()}]`;
+    const bi = out.findIndex((l) => /^\[bpm:/i.test(l));
+    if (bi >= 0) out[bi] = tag;
+    else {
+      let at = out.findIndex((l) => /^\[ar:/i.test(l));
+      if (at < 0) at = out.findIndex((l) => /^\[ti:/i.test(l));
+      out.splice(at + 1, 0, tag);
+    }
+    return out.join('\n');
+  }
+
+  function download() {
+    if (!result) return;
+    const blob = new Blob([buildLrc()], { type: 'text/plain;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = fileName;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  async function copyOut() {
+    if (!result) return;
+    await navigator.clipboard.writeText(buildLrc());
+    $('copy').textContent = 'Kopiert ✓';
+    setTimeout(() => ($('copy').textContent = 'In Zwischenablage'), 1200);
+  }
+
+  // ---------- Anzeige ----------
+  const fmt = (ms) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, '0')}.${String(Math.floor((ms % 1000) / 10)).padStart(2, '0')}`;
+
+  function render() {
+    const ready = lines.length > 0 && bpm() > 0;
+    const i = taps.length; // Index der Zeile, die der nächste Tap startet
+    const done = ready && i === lines.length + 1;
+    $('tap').disabled = !ready || done;
+    $('undo').disabled = !taps.length;
+    $('restart').disabled = !taps.length;
+    $('download').disabled = !result;
+    $('copy').disabled = !result;
+    $('bar').style.width = lines.length ? `${Math.min(100, (i / (lines.length + 1)) * 100)}%` : '0';
+
+    const stage = $('stage');
+    const esc = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    const lineHtml = (ln) => (ln.section ? `<span class="sec">{${esc(ln.section)}}</span>` : '') + esc(ln.text || '···');
+    if (!ready) {
+      stage.innerHTML = `<div class="idle">${lines.length ? 'BPM setzen, dann' : 'LRC laden, BPM setzen, dann'} mit <span class="kbd">Space</span> die erste Zeile starten.</div>`;
+    } else if (done) {
+      stage.innerHTML = `<div class="idle">Fertig — ${lines.length} Zeilen getappt.</div><div class="cur end">Ergebnis prüfen, dann herunterladen.</div>`;
+    } else if (i === lines.length) {
+      stage.innerHTML = `<div class="prev">${lineHtml(lines[i - 1])}</div><div class="cur end">— ENDE der letzten Zeile —</div><div class="next">Space, wenn die letzte Zeile ausgesungen ist</div>`;
+    } else {
+      const cur = lines[i], prev = lines[i - 1], next = lines[i + 1];
+      stage.innerHTML =
+        `<div class="prev">${prev ? lineHtml(prev) : ''}</div>` +
+        `<div class="cur">${lineHtml(cur)}</div>` +
+        `<div class="next">${next ? lineHtml(next) : '(letzte Zeile)'}</div>` +
+        `<div class="hint">${i === 0 ? 'Space beim Einsatz der ersten Zeile' : `Zeile ${i + 1} / ${lines.length}`}</div>`;
+    }
+
+    // Tabelle
+    const tb = $('table').querySelector('tbody');
+    tb.innerHTML = '';
+    let total = 0, warn = 0, bad = 0;
+    lines.forEach((ln, k) => {
+      const tr = document.createElement('tr');
+      const b = result ? result.beats[k] : null;
+      const d = result ? result.dev[k] : null;
+      if (b !== null) {
+        total += b;
+        if (b < 1) { tr.className = 'bad'; bad++; }
+        else if (Math.abs(d) > 0.25) { tr.className = 'warn'; warn++; }
+      }
+      if (!result && k === i) tr.className = 'cur';
+      tr.innerHTML =
+        `<td>${k + 1}</td>` +
+        `<td class="beats">${b === null ? (k < taps.length ? '…' : '') : `&lt;${b}&gt;`}</td>` +
+        `<td class="dev">${d === null ? '' : (d >= 0 ? '+' : '') + d.toFixed(2)}</td>` +
+        `<td>${k < taps.length ? fmt(taps[k]) : ''}</td>` +
+        `<td class="txt">${lineHtml(ln)}</td>`;
+      tb.appendChild(tr);
+    });
+    if (result) {
+      const secs = (taps[taps.length - 1] - taps[0]) / 1000;
+      $('summary').textContent =
+        `${total} Beats über ${secs.toFixed(1)} s bei ${bpm()} BPM` +
+        (warn ? ` · ${warn}× Abweichung > ¼ Beat (gelb)` : '') +
+        (bad ? ` · ${bad}× 0 Beats → wird auf 1 gesetzt (rot, bitte prüfen)` : '');
+    } else {
+      $('summary').textContent = ready ? `${lines.length} Zeilen · Beat = ${(beatMs() / 1000).toFixed(3)} s` : '—';
+    }
+  }
+
+  // Uhr + Beat-Punkt (Raster ab erstem Tap) — läuft nur zur Orientierung
+  let clickCtx = null, lastBeat = -1;
+  function tick() {
+    if (taps.length && taps.length <= lines.length && bpm()) {
+      const t = now();
+      $('clock').textContent = fmt(Math.max(0, t));
+      const k = Math.floor((t - taps[0]) / beatMs());
+      if (k !== lastBeat) {
+        lastBeat = k;
+        const dot = $('beatdot');
+        dot.className = 'beatdot ' + (k % 4 === 0 ? 'one' : 'on');
+        setTimeout(() => (dot.className = 'beatdot'), 90);
+        if ($('click').checked) clickSound(k % 4 === 0);
+      }
+    } else {
+      $('clock').textContent = '';
+    }
+    requestAnimationFrame(tick);
+  }
+  function clickSound(accent) {
+    if (!clickCtx) clickCtx = new AudioContext();
+    const o = clickCtx.createOscillator(), g = clickCtx.createGain();
+    o.frequency.value = accent ? 1600 : 1000;
+    g.gain.setValueAtTime(0.25, clickCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, clickCtx.currentTime + 0.05);
+    o.connect(g).connect(clickCtx.destination);
+    o.start(); o.stop(clickCtx.currentTime + 0.05);
+  }
+  requestAnimationFrame(tick);
+
+  // ---------- Tasten & Buttons ----------
+  $('tap').onclick = tap;
+  $('undo').onclick = undo;
+  $('restart').onclick = () => { resetTaps(); if (hasAudio()) { audio.pause(); audio.currentTime = 0; } };
+  $('download').onclick = download;
+  $('copy').onclick = copyOut;
+  bpmInput.oninput = () => { result = null; if (taps.length > lines.length) taps = []; render(); };
+  window.addEventListener('keydown', (e) => {
+    if (['INPUT', 'TEXTAREA'].includes(e.target.tagName) && e.code !== 'Escape') return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.code === 'Space') { e.preventDefault(); if (document.activeElement) document.activeElement.blur(); tap(); }
+    else if (e.code === 'Backspace') { e.preventDefault(); undo(); }
+    else if (e.code === 'KeyR') { $('restart').click(); }
+    else if (e.code === 'KeyP' && hasAudio()) { audio.paused ? audio.play() : audio.pause(); }
+  });
+  render();
+
+  // Selbsttest (Datei mit ?selftest öffnen): synthetische Taps durch die
+  // ganze Kette, Ergebnis landet als <pre id="selftest"> im Dokument
+  if (location.search.includes('selftest')) {
+    parseLrc('[ti:T]\n[ar:A]\n[00:01.00]<xxx>eins\n[00:02.50]{Chorus}<xxx> zwei\n[00:04.00]drei\n[00:05.00]<xxx>\n');
+    bpmInput.value = '120'; // Beat = 500 ms
+    taps = [0, 1480, 3020, 5000, 5510]; // 3 / 3 / 4 / 1 Beats
+    compute();
+    const pre = document.createElement('pre');
+    pre.id = 'selftest';
+    pre.textContent = JSON.stringify({ beats: result.beats, dev: result.dev.map((d) => +d.toFixed(2)) }) + '\n' + buildLrc();
+    document.body.appendChild(pre);
+  }
+})();
+</script>
+</body>
+</html>

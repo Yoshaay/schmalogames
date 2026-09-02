@@ -24,6 +24,10 @@ export class LRCParser {
   /** Sprungpunkt-Name pro Zeile (aus {Name} Tag) oder null */
   sections: Array<string | null> = [];
   metadata: Record<string, string> = {};
+  /** Referenztempo aus dem [bpm:N]-Tag: die BPM, auf die die <N>-Tags
+   *  gebaut wurden. 0 = kein (gültiger) Tag. Dient dem Abgleich mit der
+   *  Erkennung — liegt die weit daneben, kann Auto-Advance nicht passen. */
+  refBpm = 0;
 
   parseContent(content: string): boolean {
     this.lyricsLines = [];
@@ -32,6 +36,7 @@ export class LRCParser {
     this.beatTagged = [];
     this.sections = [];
     this.metadata = {};
+    this.refBpm = 0;
 
     const lines = content.trim().split('\n');
 
@@ -84,6 +89,10 @@ export class LRCParser {
       }
     }
 
+    // [bpm: 162] — Platzhalter wie "XXX" ergeben NaN und zählen als "kein Tag"
+    const bpm = Math.round(Number(this.metadata.bpm));
+    if (Number.isFinite(bpm) && bpm >= 40 && bpm <= 240) this.refBpm = bpm;
+
     return this.lyricsLines.length > 0;
   }
 
@@ -128,10 +137,14 @@ export class LRCParser {
     } else if (untaggedCount > 0) {
       warnings.push(`${untaggedCount}/${lineCount} Zeilen ohne Beat-Tag (laufen auf Default 1 Beat)`);
     }
+    // Ohne [bpm:]-Tag fehlt der Abgleich mit der Erkennung (nur Hinweis)
+    if (untaggedCount < lineCount && this.refBpm === 0) {
+      warnings.push('Kein [bpm:]-Tag — Referenztempo für den Abgleich mit der Erkennung fehlt');
+    }
 
     let level: LrcValidation['level'] = 'ok';
     if (zeroBeatLines.length > 0) level = 'error';
-    else if (untaggedCount > 0) level = 'warn';
+    else if (untaggedCount > 0 || (untaggedCount < lineCount && this.refBpm === 0)) level = 'warn';
 
     return { ok: level === 'ok', level, lineCount, untaggedCount, zeroBeatLines, totalBeats, warnings };
   }

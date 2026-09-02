@@ -15,6 +15,8 @@ interface Song {
   artist: string;
   lines: string[];
   sections: Array<string | null>;
+  /** Referenztempo aus [bpm:]-Tag (0 = keins) */
+  refBpm: number;
   validation: { level: 'ok' | 'warn' | 'error'; warnings: string[] };
   status: 'planned' | 'loaded' | 'playing' | 'finished';
 }
@@ -32,6 +34,7 @@ interface PresenterState {
   autoMode: boolean;
   autoArmed: boolean;
   autoSpaces: number;
+  refBpm: number;
 }
 
 const STYLE = `
@@ -113,6 +116,11 @@ const STYLE = `
     color: var(--blue); margin-right: 8px; text-transform: uppercase;
   }
   .ka-meta { font-family: var(--font-mono); font-size: 11px; color: var(--ink-dim); }
+  .ka-meta.mismatch { color: var(--live); font-weight: 700; }
+  .ka-root button.ka-ref {
+    font-family: var(--font-mono); font-size: 11px; padding: 3px 7px; letter-spacing: 0.04em;
+    color: var(--blue); border-color: rgba(38, 153, 214, 0.4);
+  }
   .ka-row select {
     flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 11px; color: var(--ink);
     background: #1d2029; border: 1px solid var(--panel-edge); border-radius: 4px;
@@ -187,6 +195,8 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
             </select>
             <input type="number" data-id="bpminput" min="40" max="240" placeholder="BPM"
               title="BPM fest eintippen (40–240, Enter setzt) — läuft ohne Mikro. Feld leeren oder Reset: zurück zur Erkennung">
+            <button data-id="refbpm" class="ka-ref" hidden
+              title="Referenztempo aus dem [bpm:]-Tag der LRC — darauf sind die &lt;N&gt;-Takte gebaut. Klick übernimmt den Wert als festen BPM"></button>
             <span class="ka-meta" data-id="bpm">—</span>
             <button data-id="bpmreset" title="BPM zurücksetzen — Erkennung lockt neu ein">Reset</button>
           </div>
@@ -227,6 +237,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
       artist: p.metadata.ar || '',
       lines: ok ? [...p.lyricsLines] : [],
       sections: ok ? [...p.sections] : [],
+      refBpm: ok ? p.refBpm : 0,
       validation: ok ? p.validate() : { level: 'error', warnings: ['Keine Lyrics gefunden'] },
       status,
     };
@@ -468,6 +479,9 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
   const autoBtn = q('auto') as HTMLButtonElement;
   const beatDot = q('beatdot');
   const bpmEl = q('bpm');
+  const refBtn = q('refbpm') as HTMLButtonElement;
+  /** Referenz-BPM des aktiven Songs (aus [bpm:]-Tag) */
+  const refBpm = () => songs[activeIndex]?.refBpm ?? 0;
   const micDev = container.querySelector<HTMLSelectElement>('[data-id="micdev"]')!;
 
   autoBtn.onclick = () => {
@@ -503,6 +517,19 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
   });
   bpmInput.addEventListener('change', sendBpm);
 
+  // Referenztempo-Chip: zeigt den [bpm:]-Tag, Klick setzt ihn als festen Wert
+  refBtn.onclick = () => {
+    const ref = refBpm();
+    if (!ref) return;
+    bpmInput.value = String(ref);
+    sendBpm();
+  };
+  function renderRefBpm() {
+    const ref = refBpm();
+    refBtn.hidden = !ref;
+    refBtn.textContent = ref ? `Song ${ref} BPM` : '';
+  }
+
   q('bpmreset').onclick = () => {
     api.send({ cmd: 'bpmreset' });
     bpmInput.value = '';
@@ -513,6 +540,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
   function renderAuto() {
     q('autolabel').textContent = autoOn ? 'Auto-Advance: AN (A)' : 'Auto-Advance (A)';
     autoBtn.classList.toggle('armed', autoOn);
+    bpmEl.classList.remove('mismatch');
     if (!autoOn) {
       bpmEl.textContent = '—';
       beatDot.classList.remove('on', 'warn');
@@ -668,27 +696,35 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
         renderSongs();
         renderMarkers();
         renderLyrics();
+        renderRefBpm();
         updateMeta();
         // aktive Zeile in Sicht halten
         lyricsEl.querySelector('.ka-lyric.current')?.scrollIntoView({ block: 'nearest' });
       }
       if (msg.kind === 'beat') {
-        const { bpm, locked, manual, armed, spaces } = payload as {
+        const { bpm, locked, manual, armed, spaces, ref } = payload as {
           bpm: number;
           locked: boolean;
           manual?: boolean;
           armed?: boolean;
           spaces?: number;
+          ref?: number;
         };
         const bpmTxt = bpm > 0 ? `${Math.round(bpm)} BPM${manual ? ' fix' : ''}` : '';
         const left = 2 - (spaces ?? 0);
-        bpmEl.textContent = !armed
-          ? `${bpmTxt ? bpmTxt + ' · ' : ''}wartet auf ${left}× Leertaste`
-          : locked
-            ? `${bpmTxt} · Auto fährt`
-            : bpm > 0
-              ? `${bpmTxt} · lockt ein …`
-              : 'lauscht …';
+        // Abgleich mit dem [bpm:]-Tag: >8 % daneben (typisch halb/doppelt)
+        // → die Takte können nicht stimmen, deutlich warnen
+        const mismatch = !!ref && bpm > 0 && Math.abs(bpm / ref - 1) > 0.08;
+        bpmEl.classList.toggle('mismatch', mismatch);
+        bpmEl.textContent = mismatch
+          ? `${bpmTxt} ≠ Song ${ref} — passt NICHT`
+          : !armed
+            ? `${bpmTxt ? bpmTxt + ' · ' : ''}wartet auf ${left}× Leertaste`
+            : locked
+              ? `${bpmTxt} · Auto fährt`
+              : bpm > 0
+                ? `${bpmTxt} · lockt ein …`
+                : 'lauscht …';
         beatDot.classList.remove('on', 'warn');
         beatDot.classList.add(locked ? 'on' : 'warn');
         clearTimeout(beatDotTimer);
