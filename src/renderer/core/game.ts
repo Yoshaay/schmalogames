@@ -49,9 +49,6 @@ export interface SettingDef {
 
 export type SettingValues = Record<string, number>;
 
-/** Die beiden Videowalls (linke/rechte Bühnenseite) — je ein eigener NDI-Stream */
-export type WallView = 'L' | 'R';
-
 /** Sender-Modus (Umschalter im Operator): BAYERN 3 bzw. BAYERN 1 */
 export type StationMode = 'b3' | 'b1';
 
@@ -60,12 +57,9 @@ export interface Game {
   init(ctx: GameContext): void;
   /** dt in Sekunden */
   update(dt: number): void;
+  /** Zeichnet das Bild in die virtuelle View — beide Videowalls zeigen
+   *  dasselbe, es gibt nur einen Stream */
   render(g: CanvasRenderingContext2D): void;
-  /** Optional: getrennte Bilder für Wall L und Wall R. Wenn implementiert,
-   *  ruft der Host statt render() pro Frame renderView(g,'L') und
-   *  renderView(g,'R') auf — ohne diese Methode zeigen beide Walls das
-   *  render()-Bild (gespiegelt identisch). */
-  renderView?(g: CanvasRenderingContext2D, view: WallView): void;
   /** Aufräumen (Mikrofon, Timer, ...) beim Verlassen des Spiels */
   dispose?(): void;
   /** Neue Einstellungswerte vom Operator */

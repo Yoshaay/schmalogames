@@ -152,8 +152,6 @@ export class Applausometer implements Game {
     this.confetti.update(dt);
   }
 
-  // Beide Walls zeigen dasselbe Bild — kein renderView nötig, der Host
-  // spiegelt die linke View automatisch auf die rechte.
   render(g: CanvasRenderingContext2D) {
     // Hintergrund-Asset (bis es dekodiert ist: neutrale Fläche)
     if (!this.bgFixed && this.bg.complete && this.bg.naturalWidth) {

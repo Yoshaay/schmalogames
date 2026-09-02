@@ -1,4 +1,4 @@
-import { Game, GameContext, GameEntry, SettingValues, StationMode, VIEW_W, VIEW_H, WallView } from './game';
+import { Game, GameContext, GameEntry, SettingValues, StationMode, VIEW_W, VIEW_H } from './game';
 import { Input } from './input';
 
 /** Ausgabeformat: normales FHD-Signal 16:9 (1920×1080) für die
@@ -22,6 +22,8 @@ const WALL_X = Math.round((OUT_W - WALL_W) / 2);
 const WALL_Y = Math.round((OUT_H - WALL_H) / 2);
 /** CI-Grün der Umrandung (alles außerhalb der 675×1080-Zone) — BAYERN 3 */
 const FRAME_GREEN = '#94c01c';
+/** Name der NDI-Quelle — erscheint im Netz als "RECHNERNAME (Schmalogames)" */
+const NDI_STREAM = 'Schmalogames';
 /** Umrandung im BAYERN-1-Modus (Sender-Umschalter im Operator) */
 const FRAME_BLUE = '#00a0d5';
 /** Ring zwischen 675×1080-Zone und Nutzbild — showfertig in der Frame-Farbe.
@@ -35,23 +37,16 @@ const FRAME_BLUE = '#00a0d5';
  * start / stop / set (Einstellung) / action.
  */
 export class GameHost {
-  /** Sichtbarer Canvas im Wall-Fenster (HDMI-Fallback) — zeigt winView */
+  /** Sichtbarer Canvas im Wall-Fenster (HDMI-Fallback) */
   private g: CanvasRenderingContext2D;
-  /** Offscreen-Views, in die die Games in ihrer virtuellen Auflösung rendern:
-   *  eine pro Wall (L/R). Games ohne renderView() bespielen nur L, R wird
-   *  gespiegelt (Blit). */
-  private viewL = document.createElement('canvas');
-  private viewR = document.createElement('canvas');
-  private vgL: CanvasRenderingContext2D;
-  private vgR: CanvasRenderingContext2D;
-  /** Fertig komponierte 16:9-Anlieferungsbilder pro Wall — Quelle für die
-   *  beiden NDI-Streams, die Vorschau und das Fenster */
-  private outL = document.createElement('canvas');
-  private outR = document.createElement('canvas');
-  private ogL: CanvasRenderingContext2D;
-  private ogR: CanvasRenderingContext2D;
-  /** Welchen Stream das sichtbare Wall-Fenster zeigt (HDMI kann nur einen) */
-  private winView: WallView = 'L';
+  /** Offscreen-View, in die das Game in seiner virtuellen Auflösung rendert.
+   *  Beide Videowalls zeigen dasselbe Bild — es gibt nur EINEN Stream. */
+  private view = document.createElement('canvas');
+  private vg: CanvasRenderingContext2D;
+  /** Fertig komponiertes 16:9-Anlieferungsbild — Quelle für den NDI-Stream,
+   *  die Vorschau und das Fenster */
+  private out = document.createElement('canvas');
+  private og: CanvasRenderingContext2D;
   /** Offscreen für die Stanzmaske (weiße Silhouette der Game-Grafik) */
   private maskCanvas = document.createElement('canvas');
   private mg: CanvasRenderingContext2D;
@@ -92,30 +87,21 @@ export class GameHost {
     canvas.height = OUT_H;
     this.g = canvas.getContext('2d')!;
     this.g.imageSmoothingQuality = 'high';
-    for (const view of [this.viewL, this.viewR]) {
-      view.width = VIEW_W;
-      view.height = VIEW_H;
-    }
-    this.vgL = this.viewL.getContext('2d')!;
-    this.vgR = this.viewR.getContext('2d')!;
-    for (const out of [this.outL, this.outR]) {
-      out.width = OUT_W;
-      out.height = OUT_H;
-    }
-    // willReadFrequently: der NDI-Abgriff liest beide Composites 25–60×/s
+    this.view.width = VIEW_W;
+    this.view.height = VIEW_H;
+    this.vg = this.view.getContext('2d')!;
+    this.out.width = OUT_W;
+    this.out.height = OUT_H;
+    // willReadFrequently: der NDI-Abgriff liest das Composite 25–60×/s
     // per getImageData — ohne den Hint wäre das jedes Mal ein GPU-Readback
-    this.ogL = this.outL.getContext('2d', { willReadFrequently: true })!;
-    this.ogR = this.outR.getContext('2d', { willReadFrequently: true })!;
-    this.ogL.imageSmoothingQuality = 'high';
-    this.ogR.imageSmoothingQuality = 'high';
+    this.og = this.out.getContext('2d', { willReadFrequently: true })!;
+    this.og.imageSmoothingQuality = 'high';
     this.maskCanvas.width = VIEW_W;
     this.maskCanvas.height = VIEW_H;
     this.mg = this.maskCanvas.getContext('2d')!;
 
     const savedFps = Number(localStorage.getItem('ndi.fps'));
     if (savedFps > 0) this.ndiFps = savedFps;
-    if (localStorage.getItem('wall.winview') === 'R') this.winView = 'R';
-
 
     window.addEventListener('resize', () => this.fitCanvas());
     this.fitCanvas();
@@ -163,10 +149,6 @@ export class GameHost {
         }
         break;
       }
-      case 'winview':
-        this.winView = msg.view === 'R' ? 'R' : 'L';
-        localStorage.setItem('wall.winview', this.winView);
-        break;
       case 'mode':
         // Sender-Umschalter im Operator: BAYERN 1 färbt den 16:9-Rahmen
         // blau, und das laufende Spiel darf sein Layout anpassen
@@ -214,12 +196,9 @@ export class GameHost {
     const pc = new RTCPeerConnection();
     this.previewPC = pc;
 
-    // Beide Anlieferungsbilder als getrennte Tracks — der Operator ordnet
-    // sie über die mitgeschickten MediaStream-IDs den L/R-Vorschauen zu
-    const streamL = this.outL.captureStream(30);
-    const streamR = this.outR.captureStream(30);
-    for (const track of streamL.getTracks()) pc.addTrack(track, streamL);
-    for (const track of streamR.getTracks()) pc.addTrack(track, streamR);
+    // Das Anlieferungsbild als Video-Track
+    const stream = this.out.captureStream(30);
+    for (const track of stream.getTracks()) pc.addTrack(track, stream);
 
     pc.onicecandidate = (e) => {
       if (e.candidate) window.bus.send({ type: 'rtc-ice', candidate: e.candidate.toJSON() });
@@ -227,7 +206,7 @@ export class GameHost {
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    window.bus.send({ type: 'rtc-offer', sdp: offer.sdp, streamL: streamL.id, streamR: streamR.id });
+    window.bus.send({ type: 'rtc-offer', sdp: offer.sdp });
   }
 
   private loadValues(entry: GameEntry): SettingValues {
@@ -299,7 +278,6 @@ export class GameHost {
       status: this.current?.getStatus?.() ?? {},
       mask: this.maskMode,
       ndiFps: this.ndiFps,
-      winView: this.winView,
     });
   }
 
@@ -341,55 +319,35 @@ export class GameHost {
 
       this.current?.update(dt);
 
-      // Games rendern in die virtuellen 10:16-Views (eine pro Wall) …
-      this.vgL.setTransform(1, 0, 0, 1, 0, 0);
-      this.vgL.clearRect(0, 0, VIEW_W, VIEW_H);
-      this.vgR.setTransform(1, 0, 0, 1, 0, 0);
-      this.vgR.clearRect(0, 0, VIEW_W, VIEW_H);
-      if (this.current) {
-        if (this.current.renderView) {
-          this.current.renderView(this.vgL, 'L');
-          this.current.renderView(this.vgR, 'R');
-        } else {
-          // Spiel kennt keine getrennten Walls: einmal rendern, R spiegelt L
-          this.current.render(this.vgL);
-          this.vgR.drawImage(this.viewL, 0, 0);
-        }
-      }
+      // Das Game rendert in die virtuelle 10:16-View …
+      this.vg.setTransform(1, 0, 0, 1, 0, 0);
+      this.vg.clearRect(0, 0, VIEW_W, VIEW_H);
+      this.current?.render(this.vg);
 
-      // … der Host komponiert daraus die beiden FHD-16:9-Anlieferungsbilder
-      this.composite(this.ogL, this.viewL);
-      this.composite(this.ogR, this.viewR);
+      // … der Host komponiert daraus das FHD-16:9-Anlieferungsbild
+      this.composite(this.og, this.view);
 
-      // Sichtbares Wall-Fenster (HDMI-Fallback) zeigt den gewählten Stream.
+      // Sichtbares Wall-Fenster (HDMI-Fallback) zeigt dasselbe Bild.
       // Erst leeren: das Composite hat im Nutzbild echtes Alpha — ohne
       // clearRect bleibt dort der vorherige Frame stehen (Konfetti-Schlieren)
       this.g.setTransform(1, 0, 0, 1, 0, 0);
       this.g.clearRect(0, 0, OUT_W, OUT_H);
-      this.g.drawImage(this.winView === 'R' ? this.outR : this.outL, 0, 0);
+      this.g.drawImage(this.out, 0, 0);
 
-      // NDI: beide Anlieferungsbilder als eigene Quellen ins Netz — Grün/Ring
-      // deckend (Backstage-16:9-Monitore zeigen sie randlos), das Nutzbild mit
-      // ECHTEM Alphakanal, der Ü-Wagen croppt und stanzt. Läuft auch im
-      // Leerlauf weiter, damit die Streams stehen bleiben.
+      // NDI: das Anlieferungsbild als EINE Quelle ins Netz (beide Walls
+      // zeigen dasselbe) — Grün/Ring deckend (Backstage-16:9-Monitore zeigen
+      // es randlos), das Nutzbild mit ECHTEM Alphakanal, der Ü-Wagen croppt
+      // und stanzt. Läuft auch im Leerlauf weiter, damit der Stream steht.
       this.ndiAccum += dt;
       if (this.ndiAccum >= 1 / this.ndiFps) {
         this.ndiAccum %= 1 / this.ndiFps;
-        const imgL = this.ogL.getImageData(0, 0, OUT_W, OUT_H);
+        const img = this.og.getImageData(0, 0, OUT_W, OUT_H);
         window.ndi.sendFrame({
-          stream: 'Schmalogames Wall L',
+          stream: NDI_STREAM,
           width: OUT_W,
           height: OUT_H,
           fps: this.ndiFps,
-          data: imgL.data.buffer,
-        });
-        const imgR = this.ogR.getImageData(0, 0, OUT_W, OUT_H);
-        window.ndi.sendFrame({
-          stream: 'Schmalogames Wall R',
-          width: OUT_W,
-          height: OUT_H,
-          fps: this.ndiFps,
-          data: imgR.data.buffer,
+          data: img.data.buffer,
         });
       }
 

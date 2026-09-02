@@ -275,8 +275,8 @@
         justify-content: center;
       }
       .preview-frame {
-        /* exakt 16:9 (FHD) pro Wall, beide nebeneinander in Breite UND Höhe eingepasst */
-        width: min(calc(50% - 4px), calc(100cqh * 16 / 9));
+        /* exakt 16:9 (FHD), in Breite UND Höhe eingepasst */
+        width: min(100%, calc(100cqh * 16 / 9));
         aspect-ratio: 16 / 9;
         display: flex;
         align-items: center;
@@ -655,7 +655,6 @@
       >
         Stanzmaske
       </button>
-      <button id="winview" title="Welchen der beiden Streams das Wall-Fenster (HDMI-Fallback) zeigt">Fenster: Wall L</button>
       <button id="fullscreen">Wall-Vollbild</button>
     </header>
 
@@ -673,12 +672,8 @@
           <h2>Vorschau — Videowall</h2>
           <div class="preview-wrap">
             <div class="preview-frame">
-              <span class="preview-tag" id="tag-l">WALL L</span>
-              <video id="preview-l" autoplay muted playsinline></video>
-            </div>
-            <div class="preview-frame">
-              <span class="preview-tag" id="tag-r">WALL R</span>
-              <video id="preview-r" autoplay muted playsinline></video>
+              <span class="preview-tag" id="tag">NDI</span>
+              <video id="preview" autoplay muted playsinline></video>
             </div>
           </div>
         </div>

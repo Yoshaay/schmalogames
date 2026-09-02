@@ -4,8 +4,8 @@
  * Netz — der Ü-Wagen holt sich Fill+Key in einem Stream.
  *
  * Ausgelegt auf N parallele Streams: jeder Frame trägt einen Stream-Namen,
- * Sender werden beim ersten Frame eines Namens angelegt (z.B. später
- * "Wall L" / "Wall R" für getrennte Bespielung).
+ * Sender werden beim ersten Frame eines Namens angelegt. Aktuell gibt es
+ * genau eine Quelle ("Schmalogames") — beide Videowalls zeigen dasselbe.
  */
 
 // Frame, wie ihn der Renderer über IPC anliefert (Kanal 'ndi-frame')

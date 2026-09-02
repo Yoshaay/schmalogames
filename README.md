@@ -3,9 +3,9 @@
 Electron-Tool für Minigames auf einer Videowall — gebaut für den Live-Einsatz
 mit Ü-Wagen. Zwei Fenster: der **Operator** steuert, die **Wall** zeigt den
 Cleanfeed (nur das finale Bild, keine Overlays oder Hilfetexte). Ausgespielt
-wird per **NDI** als zwei Quellen („Schmalogames Wall L“/„Wall R“), jeweils
-ein volles FHD-16:9-Signal mit echtem Alpha im Nutzbild; das Wall-Fenster
-dient als HDMI-Fallback.
+wird per **NDI** als eine Quelle („Schmalogames“) — ein volles FHD-16:9-Signal
+mit echtem Alpha im Nutzbild, das beide Videowalls gemeinsam bespielt; das
+Wall-Fenster dient als HDMI-Fallback.
 
 ## Sender-Modus: BAYERN 3 / BAYERN 1
 
@@ -76,7 +76,10 @@ unteren Drittel. Panel als hochkante Sidebar:
   Sprung ({Name}-Marken aus der LRC), Leertaste löst ihn aus.
 - **Auto-Advance:** Beat-Erkennung über wählbaren Audio-Eingang zählt Zeilen
   automatisch weiter (`<N>`-Tags = Beats pro Zeile); Space bleibt als
-  Korrektur. Beat-Punkt + BPM im Panel. Alternativ **BPM fest eintippen**
+  Korrektur. Auto fährt nie von selbst los: nach Einschalten, BPM-Änderung
+  oder Songwechsel braucht es **zwei Leertasten** (Songstart + bestätigter
+  Einsatz auf dem Beat), erst dann zählt es; bei festem BPM wird das Grid
+  auf diesen zweiten Druck ausgerichtet. Beat-Punkt + BPM im Panel. Alternativ **BPM fest eintippen**
   (40–240, Enter setzt) — das Grid läuft dann von der Uhr, ganz ohne Mikro;
   Feld leeren oder Reset schaltet zurück auf Erkennung.
 - Song-Ende lädt automatisch den nächsten Song der Setlist.
@@ -98,7 +101,7 @@ unteren Drittel. Panel als hochkante Sidebar:
 
 ## Signalformat / Ü-Wagen
 
-Jeder der beiden NDI-Streams ist ein komponiertes FHD-16:9-Bild (1920×1080):
+Der NDI-Stream ist ein komponiertes FHD-16:9-Bild (1920×1080):
 außen die Rahmenfarbe des Sender-Modus (Grün bzw. Blau — Backstage-Monitore
 zeigen den vollen Frame randlos), darin die 675×1080-Zone, mittig das
 640×1024-**Nutzbild** mit echtem Alphakanal. Der Ü-Wagen croppt sich das
@@ -125,8 +128,8 @@ einer `index.ts`, die ein `GameEntry` exportiert, plus Eintrag in
 
 Das Spiel selbst implementiert `Game` (`init/update/render` auf einen
 virtuellen 1200×1920-Canvas, 10:16 Hochformat — der Host skaliert ihn ins
-640×1024-Nutzbild). Optional: `renderView(g, 'L'|'R')` für getrennte Bilder
-pro Wall, `setStationMode()` für Layout-Anpassungen im BAYERN-1-Modus.
+640×1024-Nutzbild). Optional: `setStationMode()` für Layout-Anpassungen im
+BAYERN-1-Modus.
 Assets (PNG/FBX) einfach importieren — esbuild bündelt sie.
 
 ## Tech-Notizen
@@ -134,7 +137,7 @@ Assets (PNG/FBX) einfach importieren — esbuild bündelt sie.
 - Electron + esbuild + TypeScript, three.js **gepinnt auf 0.128**
   (Prototyp-Look; r128 braucht `skinning: true` auf SkinnedMesh-Materialien).
 - Die beiden Fenster reden über einen IPC-Bus (`msg`-Relay im Main-Prozess);
-  die Operator-Vorschau streamt beide Wall-Composites per WebRTC.
+  die Operator-Vorschau streamt das Wall-Composite per WebRTC.
 - NDI-Ausgabe über das Binding `grandi` (NDI-6-SDK, bringt die libndi mit —
   kein Setup am Show-Rechner nötig); Senden läuft im Main-Prozess.
 - Einstellungen werden pro Spiel in `localStorage` des Wall-Fensters

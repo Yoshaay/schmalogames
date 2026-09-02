@@ -60,16 +60,13 @@ $('mask').onclick = () => window.bus.send({ type: 'mask', on: !maskOn });
 // NDI-Framerate — Wert lebt (persistiert) im Wall-Fenster, State synct zurück
 ($('ndifps') as HTMLSelectElement).onchange = (e) =>
   window.bus.send({ type: 'ndi-fps', fps: Number((e.target as HTMLSelectElement).value) });
-// Fenster-Stream: welchen der beiden Wall-Streams das HDMI-Fallback-Fenster zeigt
-let winView: 'L' | 'R' = 'L';
-$('winview').onclick = () => window.bus.send({ type: 'winview', view: winView === 'L' ? 'R' : 'L' });
 
 // ---------- Live-Vorschau (WebRTC vom Wall-Fenster) ----------
 let previewPC: RTCPeerConnection | null = null;
 let previewPendingIce: RTCIceCandidateInit[] = [];
 let previewRemoteSet = false;
 
-async function acceptPreviewOffer(sdp: string, streamL?: string, streamR?: string) {
+async function acceptPreviewOffer(sdp: string) {
   previewPC?.close();
   previewPendingIce = [];
   previewRemoteSet = false;
@@ -77,10 +74,7 @@ async function acceptPreviewOffer(sdp: string, streamL?: string, streamR?: strin
   const pc = new RTCPeerConnection();
   previewPC = pc;
   pc.ontrack = (e) => {
-    // Zuordnung über die MediaStream-IDs aus dem Offer (Wall L / Wall R)
-    const stream = e.streams[0];
-    const video = stream.id === streamR ? $('preview-r') : $('preview-l');
-    (video as HTMLVideoElement).srcObject = stream;
+    ($('preview') as HTMLVideoElement).srcObject = e.streams[0];
   };
   pc.onicecandidate = (e) => {
     if (e.candidate) window.bus.send({ type: 'rtc-ice', candidate: e.candidate.toJSON() });
@@ -296,7 +290,6 @@ interface StateMsg {
   status: Record<string, string | number>;
   mask?: boolean;
   ndiFps?: number;
-  winView?: 'L' | 'R';
 }
 
 window.bus.onMessage((raw) => {
@@ -305,8 +298,6 @@ window.bus.onMessage((raw) => {
     sdp?: string;
     candidate?: RTCIceCandidateInit;
     fullscreen?: boolean;
-    streamL?: string;
-    streamR?: string;
   };
   if (anyMsg.type === 'wall-ready') {
     // Wall-Fenster (neu) gestartet — Vorschau-Verbindung anfordern
@@ -316,7 +307,7 @@ window.bus.onMessage((raw) => {
     return;
   }
   if (anyMsg.type === 'rtc-offer' && anyMsg.sdp) {
-    acceptPreviewOffer(anyMsg.sdp, anyMsg.streamL, anyMsg.streamR);
+    acceptPreviewOffer(anyMsg.sdp);
     return;
   }
   if (anyMsg.type === 'rtc-ice' && anyMsg.candidate) {
@@ -339,17 +330,13 @@ window.bus.onMessage((raw) => {
   if (anyMsg.type === 'ndi-tally') {
     const tally = (raw as { tally: Record<string, { onProgram: boolean; onPreview: boolean; connections: number }> })
       .tally;
-    for (const [suffix, tagId] of [
-      ['Wall L', 'tag-l'],
-      ['Wall R', 'tag-r'],
-    ] as const) {
-      const entry = Object.entries(tally).find(([name]) => name.endsWith(suffix))?.[1];
-      const tag = $(tagId);
-      const state = entry?.onProgram ? 'ON AIR' : entry?.onPreview ? 'PVW' : '';
-      tag.textContent = `WALL ${suffix.slice(-1)}${state ? ` · ${state}` : ''}${entry?.connections ? '' : ' · offline'}`;
-      tag.classList.toggle('onair', entry?.onProgram === true);
-      tag.classList.toggle('pvw', !entry?.onProgram && entry?.onPreview === true);
-    }
+    // Eine Quelle — erster (einziger) Eintrag im Tally-Snapshot
+    const entry = Object.values(tally)[0];
+    const tag = $('tag');
+    const state = entry?.onProgram ? 'ON AIR' : entry?.onPreview ? 'PVW' : '';
+    tag.textContent = `NDI${state ? ` · ${state}` : ''}${entry?.connections ? '' : ' · offline'}`;
+    tag.classList.toggle('onair', entry?.onProgram === true);
+    tag.classList.toggle('pvw', !entry?.onProgram && entry?.onPreview === true);
     return;
   }
   if (anyMsg.type === 'wall-fullscreen-state') {
@@ -369,11 +356,6 @@ window.bus.onMessage((raw) => {
 
   const fpsSel = $('ndifps') as HTMLSelectElement;
   if (msg.ndiFps && document.activeElement !== fpsSel) fpsSel.value = String(msg.ndiFps);
-
-  if (msg.winView) {
-    winView = msg.winView;
-    $('winview').textContent = `Fenster: Wall ${winView}`;
-  }
 
   if (msg.gameId !== activeGameId) {
     activeGameId = msg.gameId;
