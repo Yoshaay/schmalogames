@@ -30,6 +30,8 @@ interface PresenterState {
   title: string;
   artist: string;
   autoMode: boolean;
+  autoArmed: boolean;
+  autoSpaces: number;
 }
 
 const STYLE = `
@@ -482,7 +484,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
   const sendBpm = () => {
     if (bpmInput.value.trim() === '') {
       api.send({ cmd: 'bpmset', value: 0 });
-      bpmEl.textContent = autoOn ? 'lauscht …' : '—';
+      bpmEl.textContent = autoOn ? 'wartet auf 2× Leertaste' : '—';
       return;
     }
     const v = Math.round(Number(bpmInput.value));
@@ -505,7 +507,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
   q('bpmreset').onclick = () => {
     api.send({ cmd: 'bpmreset' });
     bpmInput.value = '';
-    bpmEl.textContent = 'lauscht …';
+    bpmEl.textContent = autoOn ? 'wartet auf 2× Leertaste' : '—';
     beatDot.classList.remove('on', 'warn');
   };
 
@@ -515,6 +517,8 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     if (!autoOn) {
       bpmEl.textContent = '—';
       beatDot.classList.remove('on', 'warn');
+    } else {
+      bpmEl.textContent = 'wartet auf 2× Leertaste';
     }
   }
 
@@ -667,12 +671,22 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
         lyricsEl.querySelector('.ka-lyric.current')?.scrollIntoView({ block: 'nearest' });
       }
       if (msg.kind === 'beat') {
-        const { bpm, locked, manual } = payload as { bpm: number; locked: boolean; manual?: boolean };
-        bpmEl.textContent = locked
-          ? `${Math.round(bpm)} BPM${manual ? ' fix' : ''} · Auto fährt`
-          : bpm > 0
-            ? `${Math.round(bpm)} BPM · lockt ein …`
-            : 'lauscht …';
+        const { bpm, locked, manual, armed, spaces } = payload as {
+          bpm: number;
+          locked: boolean;
+          manual?: boolean;
+          armed?: boolean;
+          spaces?: number;
+        };
+        const bpmTxt = bpm > 0 ? `${Math.round(bpm)} BPM${manual ? ' fix' : ''}` : '';
+        const left = 2 - (spaces ?? 0);
+        bpmEl.textContent = !armed
+          ? `${bpmTxt ? bpmTxt + ' · ' : ''}wartet auf ${left}× Leertaste`
+          : locked
+            ? `${bpmTxt} · Auto fährt`
+            : bpm > 0
+              ? `${bpmTxt} · lockt ein …`
+              : 'lauscht …';
         beatDot.classList.remove('on', 'warn');
         beatDot.classList.add(locked ? 'on' : 'warn');
         clearTimeout(beatDotTimer);

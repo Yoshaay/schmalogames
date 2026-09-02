@@ -32,6 +32,10 @@ const PRE_BEATS = 1;
  *  Die Engine-Konfidenz pendelt bei normalem Material um 0,3–0,6. */
 const LOCK_CONF = 0.3;
 
+/** So viele Leertasten braucht Auto-Advance nach dem Einschalten, bevor es
+ *  selbst zählt: 1 = Songstart, 2 = bestätigter Einsatz auf dem Beat */
+const ARM_SPACES = 2;
+
 /* ---------- Conveyor-Animation (aus player.css, skaliert auf 1080p) ---------- */
 
 type Role = 'current' | 'exitUp' | 'enterBelow' | 'exitDown' | 'enterAbove';
@@ -157,6 +161,12 @@ export class Schmalaoke implements Game {
   private currentBeatInLine = 0;
   /** Sperrzeit nach manueller Korrektur (ms, Date.now-Basis) */
   private beatCooldownUntil = 0;
+  /** Freigabe: Auto zählt erst, nachdem der Operator seit dem Einschalten
+   *  (bzw. seit BPM-Änderung / neuem Song) ARM_SPACES-mal Leertaste gedrückt
+   *  hat — die erste startet den Song / zeigt die Zeile, erst die zweite
+   *  bestätigt, dass Mensch und Musik synchron sind. Damit fährt Auto nie
+   *  von selbst los; das Grid übernimmt erst danach. */
+  private autoSpaces = 0;
 
   /* ---------- Anzeige ---------- */
   private sprites: Sprite[] = [];
@@ -222,7 +232,9 @@ export class Schmalaoke implements Game {
         this.engine.reset();
         this.currentBeatInLine = 0;
         this.beatCooldownUntil = 0;
+        this.autoSpaces = 0;
         if (this.autoMode && !this.listening) this.startListening();
+        this.sendPresenter();
         break;
       case 'bpmset': {
         const v = Math.round(msg.value ?? 0);
@@ -233,14 +245,17 @@ export class Schmalaoke implements Game {
           this.engine.setBpm(this.manualBpm, performance.now());
           this.currentBeatInLine = 0;
           this.beatCooldownUntil = 0;
+          this.autoSpaces = 0;
         } else {
           // Feld geleert: zurück zur Mikrofon-Erkennung
           this.manualBpm = 0;
           this.engine.reset();
           this.currentBeatInLine = 0;
           this.beatCooldownUntil = 0;
+          this.autoSpaces = 0;
           if (this.autoMode) this.startListening();
         }
+        this.sendPresenter();
         break;
       }
       case 'micdev':
@@ -261,6 +276,9 @@ export class Schmalaoke implements Game {
     this.autoMode = enabled;
     this.currentBeatInLine = 0;
     this.beatCooldownUntil = 0;
+    // Einschalten ist nur Bereitschaft — losfahren darf Auto erst nach
+    // zwei Leertasten (siehe autoSpaces)
+    this.autoSpaces = 0;
     if (enabled) {
       // Fester BPM-Wert braucht kein Mikro — Grid neu ab jetzt ausrichten
       if (this.manualBpm > 0) this.engine.setBpm(this.manualBpm, performance.now());
@@ -308,6 +326,10 @@ export class Schmalaoke implements Game {
     this.engine.reset();
   }
 
+  private isArmed(): boolean {
+    return this.autoSpaces >= ARM_SPACES;
+  }
+
   /** Ampel: erst wenn Tempo UND Konfidenz stehen, darf Auto fahren */
   private isLocked(): boolean {
     return this.engine.periodMs > 0 && this.engine.conf >= LOCK_CONF;
@@ -316,8 +338,17 @@ export class Schmalaoke implements Game {
   /** Beat vom Audio-Grid: Zähler pro Zeile, bei <N> erreicht → weiterblättern */
   private handleDetectedBeat() {
     const locked = this.isLocked();
-    this.ctx?.sendToOperator({ kind: 'beat', bpm: this.engine.bpm, locked, manual: this.manualBpm > 0 });
+    this.ctx?.sendToOperator({
+      kind: 'beat',
+      bpm: this.engine.bpm,
+      locked,
+      manual: this.manualBpm > 0,
+      armed: this.isArmed(),
+      spaces: this.autoSpaces,
+    });
     if (!this.autoMode || !this.lyricsModeStarted || this.songEndedDisplayed) return;
+    // Noch keine Freigabe per Leertaste: Grid läuft mit, zählt aber nicht
+    if (!this.isArmed()) return;
     // Song ohne Beat-Tags: Auto greift NICHT ein (nur manuell weiterblättern)
     if (!this.autoCapable) return;
     // Ampel gelb (Erkennung noch nicht stabil): manuell fahren, nicht zählen
@@ -361,9 +392,11 @@ export class Schmalaoke implements Game {
         ? 'aus'
         : this.lines.length && !this.autoCapable
           ? 'AN — Song ohne Beat-Tags, nur manuell!'
-          : this.isLocked()
-            ? `AN · ${Math.round(this.engine.bpm)} BPM${this.manualBpm > 0 ? ' (fix)' : ''} · fährt`
-            : 'AN · lauscht — manuell fahren',
+          : !this.isArmed()
+            ? `AN — wartet auf Leertaste (${this.autoSpaces}/${ARM_SPACES})`
+            : this.isLocked()
+              ? `AN · ${Math.round(this.engine.bpm)} BPM${this.manualBpm > 0 ? ' (fix)' : ''} · fährt`
+              : 'AN · lauscht — manuell fahren',
     };
   }
 
@@ -488,6 +521,7 @@ export class Schmalaoke implements Game {
     this.beatCounts = [];
     this.currentBeatInLine = 0;
     this.beatCooldownUntil = 0;
+    this.autoSpaces = 0;
   }
 
   private loadSong(name: string, content: string) {
@@ -518,6 +552,13 @@ export class Schmalaoke implements Game {
 
   private handleSpace() {
     if (this.errorText) return;
+    // Leertasten zählen: erst die ARM_SPACES-te gibt Auto frei. Bei festem
+    // BPM wird das Grid genau auf diesen Druck ausgerichtet — der Beat
+    // liegt dann phasengleich zum Operator, nicht zum Zeitpunkt der Eingabe
+    if (this.autoSpaces < ARM_SPACES) {
+      this.autoSpaces++;
+      if (this.isArmed() && this.manualBpm > 0) this.engine.setBpm(this.manualBpm, performance.now());
+    }
 
     // Armierter Sprung hat Vorrang
     if (this.pendingJump >= 0) {
@@ -649,6 +690,8 @@ export class Schmalaoke implements Game {
       title: this.title,
       artist: this.artist,
       autoMode: this.autoMode,
+      autoArmed: this.isArmed(),
+      autoSpaces: this.autoSpaces,
     });
   }
 }
