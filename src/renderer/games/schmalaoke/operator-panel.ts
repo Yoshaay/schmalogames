@@ -103,10 +103,9 @@ const STYLE = `
   .ka-song .ops button { height: 22px; padding: 0 7px; font-size: 11px; }
   .ka-lyric {
     padding: 4px 10px; font-size: 12px; color: var(--ink-dim);
-    border-left: 3px solid transparent; cursor: pointer;
+    border-left: 3px solid transparent;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .ka-lyric:hover { background: #171a22; }
   .ka-lyric.current { color: #ffffff; border-left-color: var(--primary); background: rgba(var(--primary-rgb), 0.08); }
   .ka-lyric.armed { color: var(--live); border-left-color: var(--live); }
   .ka-lyric .sec {
@@ -181,7 +180,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
             <button data-id="next" title="Taste N">Nächster Song</button>
           </div>
           <div class="ka-head" title="Beats zählen die Zeilen weiter — braucht &lt;N&gt;-Tags in der LRC">Auto-Advance · Beat-Sync</div>
-          <button data-id="auto" class="ka-btn-wide"><span class="ka-beat" data-id="beatdot"></span><span data-id="autolabel">Auto-Advance</span></button>
+          <button data-id="auto" class="ka-btn-wide" title="Taste A schaltet um"><span class="ka-beat" data-id="beatdot"></span><span data-id="autolabel">Auto-Advance</span></button>
           <div class="ka-row">
             <select data-id="micdev" title="Audio-Eingang für die Beat-Erkennung">
               <option value="default">Standard-Eingang</option>
@@ -512,7 +511,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
   };
 
   function renderAuto() {
-    q('autolabel').textContent = autoOn ? 'Auto-Advance: AN' : 'Auto-Advance';
+    q('autolabel').textContent = autoOn ? 'Auto-Advance: AN (A)' : 'Auto-Advance (A)';
     autoBtn.classList.toggle('armed', autoOn);
     if (!autoOn) {
       bpmEl.textContent = '—';
@@ -583,8 +582,8 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
         el.appendChild(sec);
       }
       el.appendChild(document.createTextNode(line || '···'));
-      el.title = 'Klick: Sprung armieren — Leertaste löst aus';
-      el.onclick = () => api.send({ cmd: 'jump', index: i });
+      // Bewusst KEIN Klick auf Zeilen: das sah aus wie "ausgewählt", sprang
+      // aber nicht — Sprünge laufen nur über die Marken-Chips / Ziffern
       lyricsEl.appendChild(el);
     });
   }
@@ -605,7 +604,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
 
   /* ---------- Tastensteuerung (wie im Original-Player) ---------- */
 
-  const KEY_MAP: Record<string, 'space' | 'prev' | 'nextsong' | 'restart'> = {
+  const KEY_MAP: Record<string, 'space' | 'prev' | 'nextsong' | 'restart' | 'auto'> = {
     Space: 'space',
     ArrowRight: 'space',
     ArrowDown: 'space',
@@ -615,6 +614,8 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     // R = Neustart (MacBook-tauglich); Home bleibt für externe Tastaturen
     KeyR: 'restart',
     Home: 'restart',
+    // A = Auto-Advance an/aus
+    KeyA: 'auto',
   };
 
   function handleCode(code: string) {
@@ -626,6 +627,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     const cmd = KEY_MAP[code];
     if (!cmd) return;
     if (cmd === 'nextsong') q('next').click();
+    else if (cmd === 'auto') autoBtn.click();
     else api.send({ cmd });
   }
 

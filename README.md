@@ -72,8 +72,9 @@ weiterexistiert). LRC-Dateien in die Setlist laden, die Wall zeigt immer
 des Hintergrund-Assets (Clip-Maske), in BAYERN 1 ohne Asset zentriert im
 unteren Drittel. Panel als hochkante Sidebar:
 
-- **Presenter:** Leertaste blättert, Zeilen-Klick oder Ziffer armiert einen
-  Sprung ({Name}-Marken aus der LRC), Leertaste löst ihn aus.
+- **Presenter:** Leertaste blättert; Marken-Chip-Klick oder Ziffer armiert
+  einen Sprung ({Name}-Marken aus der LRC), Leertaste löst ihn aus. Die
+  Textzeilen selbst sind nur Anzeige, nicht klickbar.
 - **Auto-Advance:** Beat-Erkennung über wählbaren Audio-Eingang zählt Zeilen
   automatisch weiter (`<N>`-Tags = Beats pro Zeile); Space bleibt als
   Korrektur. Auto fährt nie von selbst los: nach Einschalten, BPM-Änderung
@@ -96,6 +97,7 @@ unteren Drittel. Panel als hochkante Sidebar:
 | ← / ↑ | Schmalaoke: Zeile zurück |
 | N | Schmalaoke: nächster Song |
 | R (oder Home) | Schmalaoke: Song-Neustart |
+| A | Schmalaoke: Auto-Advance an/aus |
 | T | Tap-Tempo (Schmalogroove) |
 | F11 | Wall-Vollbild |
 
