@@ -50,7 +50,8 @@
       "category": "public.app-category.entertainment",
       "identity": null,
       "hardenedRuntime": false,
-      "gatekeeperAssess": false
+      "gatekeeperAssess": false,
+      "icon": "build/icon.icns"
     },
     "npmRebuild": false
   }

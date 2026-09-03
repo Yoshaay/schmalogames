@@ -181,6 +181,10 @@ if (!app.requestSingleInstanceLock()) {
     operator?.focus();
   });
   app.whenReady().then(() => {
+    // Dev-Start (electron .): Dock-Icon setzen — gepackt steckt es im Bundle
+    if (!app.isPackaged && process.platform === 'darwin') {
+      app.dock?.setIcon(path.join(__dirname, '../../build/icon.png'));
+    }
     createWindows();
   });
 }
