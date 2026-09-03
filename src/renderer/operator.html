@@ -405,6 +405,79 @@
         cursor: pointer;
       }
 
+      /* ---------- Debug-Panel (Netz/NDI-Infos für den Ü-Wagen-Test) ---------- */
+      button.debug-on {
+        color: var(--primary);
+        border-color: rgba(var(--primary-rgb), 0.4);
+        background: rgba(var(--primary-rgb), 0.1);
+      }
+      #debug-panel {
+        position: fixed;
+        top: 64px;
+        right: 16px;
+        width: 400px;
+        max-height: calc(100vh - 80px);
+        overflow: auto;
+        z-index: 50;
+        background: #101218;
+        border: 1px solid var(--panel-edge);
+        border-radius: 6px;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+        padding: 12px 14px 14px;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        line-height: 1.5;
+        color: var(--ink);
+      }
+      #debug-panel h3 {
+        font-size: 10px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--ink-dim);
+        margin: 10px 0 4px;
+      }
+      #debug-panel h3:first-child {
+        margin-top: 0;
+      }
+      #debug-panel .row {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 1px 0;
+        border-bottom: 1px dashed rgba(255, 255, 255, 0.05);
+      }
+      #debug-panel .row .k {
+        color: var(--ink-dim);
+        white-space: nowrap;
+      }
+      #debug-panel .row .v {
+        text-align: right;
+        word-break: break-all;
+        user-select: text;
+        font-variant-numeric: tabular-nums;
+      }
+      #debug-panel .v.good {
+        color: var(--primary);
+      }
+      #debug-panel .v.warn {
+        color: #ffb454;
+      }
+      #debug-panel .v.bad {
+        color: #ff5c5c;
+      }
+      #debug-panel .big {
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--primary);
+        user-select: text;
+        margin-bottom: 2px;
+      }
+      #debug-panel .hint {
+        margin-top: 8px;
+        font-size: 10px;
+        color: var(--ink-dim);
+      }
+
       /* Maske ist ON AIR sichtbar — deutlich warnen, solange sie aktiv ist */
       button.mask-on {
         color: #ff5c5c;
@@ -658,7 +731,12 @@
         Stanzmaske
       </button>
       <button id="fullscreen">Wall-Vollbild</button>
+      <button id="debug" title="Debug-Infos: IP-Adressen, NDI-Quellenname, Verbindungen, Frame-Rate, Displays (⌘/Strg+D)">
+        Debug
+      </button>
     </header>
+
+    <div id="debug-panel" hidden><div class="hint">Lade …</div></div>
 
     <nav id="gamebar">
       <span class="head">Spiele</span>

@@ -23,7 +23,14 @@ Umschalter im Operator-Header (Wahl wird gemerkt):
 npm install
 npm start        # baut und startet beide Fenster
 npm run dev      # dasselbe mit offenen DevTools
+npm run dist     # fertige App: release/mac-arm64/Schmalogames.app
+npm run dist:zip # dasselbe + ZIP zum Weitergeben (release/*.zip)
 ```
+
+Die gepackte App läuft ohne VS Code/Node — einfach die `.app` starten
+(unsigniert, lokal gebaut; beim ersten Start im fremden Netz fragt macOS
+nach der Firewall-Freigabe → **Erlauben**, sonst findet der Ü-Wagen die
+NDI-Quelle nicht).
 
 - **F11** schaltet die Wall in den Vollbildmodus (auch per Button im Operator).
 - Das Wall-Fenster auf den Videowall-Ausgang ziehen, Vollbild an — fertig.
@@ -70,7 +77,13 @@ Karaoke-Lyrics-Player (Port der Standalone-App SchmalKaraoke, die als Backup
 weiterexistiert). LRC-Dateien in die Setlist laden, die Wall zeigt immer
 **eine** Zeile im Conveyor-Stil: In BAYERN 3 läuft sie durch das pinke Band
 des Hintergrund-Assets (Clip-Maske), in BAYERN 1 ohne Asset zentriert im
-unteren Drittel. Panel als hochkante Sidebar:
+unteren Drittel. **Lange Zeilen werden beim Laden automatisch geteilt** (ab
+36 Zeichen, an der Wortgrenze nahe der Mitte, bevorzugt hinter einem Komma;
+`MAX_LINE_CHARS` in `lrc-parser.ts`): Beat-Tags werden auf die Hälften
+verteilt, Sprungmarken bleiben an der ersten, das Panel zählt die geteilten
+Zeilen im Warnhinweis mit. Die LRC-Dateien bleiben unverändert. Was trotzdem
+zu breit ist, schrumpft die Wall proportional statt umzubrechen. Panel als
+hochkante Sidebar:
 
 - **Presenter:** Leertaste blättert; Marken-Chip-Klick oder Ziffer armiert
   einen Sprung ({Name}-Marken aus der LRC), Leertaste löst ihn aus. Die
@@ -119,6 +132,7 @@ Zwischenablage kopieren.
 | A | Schmalaoke: Auto-Advance an/aus |
 | T | Tap-Tempo (Schmalogroove) |
 | F11 | Wall-Vollbild |
+| ⌘/Strg + D | Debug-Panel im Operator an/aus |
 
 ## Signalformat / Ü-Wagen
 
@@ -131,6 +145,13 @@ Nutzbild auf die großen Walls und legt das Livebild hinter die Transparenz
 Als Fallback gibt es den Toggle **Stanzmaske** (Luma-Matte statt Nutzbild);
 auf dem HDMI-Wall-Fenster wirkt Transparenz schwarz. Alle Grafikfarben sind
 key-sicher gewählt (nichts Fast-Schwarzes im Vordergrund).
+
+**Debug-Panel** (Button „Debug" im Operator-Header oder ⌘/Strg+D): zeigt den
+NDI-Quellennamen, wie er im Netz erscheint, IP-Adressen je Interface,
+NDI-Status/Empfängerzahl/Tally, tatsächlich gesendete fps gegen die
+eingestellten, Displays mit Refresh-Rate (das Wall-Display ist markiert —
+Rate sollte ein Vielfaches der NDI-fps sein, also z.B. 50 Hz bei 50 fps)
+sowie App-/Electron-Version. Aktualisiert sich jede Sekunde, solange es offen ist.
 
 ## Neues Spiel anlegen
 
@@ -166,6 +187,7 @@ Assets (PNG/FBX) einfach importieren — esbuild bündelt sie.
 
 ## Status / offene Punkte
 
-Funktional komplett fürs Proben. Offen für den Show-Betrieb: automatisches
-Vollbild auf dem richtigen Display + Sleep-Blocker, Packaging als App,
-Crash-Recovery, Keying-Test an echter Ü-Wagen-Technik.
+Funktional komplett fürs Proben, Packaging als App steht (`npm run dist`).
+Offen für den Show-Betrieb: automatisches Vollbild auf dem richtigen
+Display + Sleep-Blocker, Crash-Recovery, Keying-Test an echter
+Ü-Wagen-Technik.

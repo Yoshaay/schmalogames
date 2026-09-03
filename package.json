@@ -7,16 +7,51 @@
   "scripts": {
     "build": "node build.mjs",
     "start": "npm run build && electron .",
-    "dev": "npm run build && electron . --dev"
+    "dev": "npm run build && electron . --dev",
+    "dist": "npm run build && electron-builder --mac --arm64 --dir",
+    "dist:zip": "npm run build && electron-builder --mac --arm64"
   },
   "devDependencies": {
     "@types/three": "^0.128.0",
     "electron": "^36.0.0",
+    "electron-builder": "^26.15.3",
     "esbuild": "^0.25.0",
     "typescript": "^5.8.0"
   },
   "dependencies": {
     "grandi": "^2.0.2",
     "three": "^0.128.0"
+  },
+  "author": "Yoshy",
+  "build": {
+    "appId": "de.br.schmalogames",
+    "productName": "Schmalogames",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/grandi/**",
+      "node_modules/@grandi/**",
+      "node_modules/node-gyp-build/**"
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.entertainment",
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "npmRebuild": false
   }
 }

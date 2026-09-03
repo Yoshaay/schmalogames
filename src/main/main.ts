@@ -1,4 +1,5 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, screen } from 'electron';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { NdiOutput, NdiFrame } from './ndi';
 
@@ -101,6 +102,43 @@ function createWindows() {
 // die 'msg'-Vermittlung laufen.
 ipcMain.on('ndi-frame', (_event, frame: NdiFrame) => {
   void ndi.pushFrame(frame);
+});
+
+// Debug-Panel im Operator: Rechnername, IPs, NDI-Quelle, Frame-Statistik,
+// Display-Refresh — alles, was man beim Ü-Wagen-Test schnell sehen will
+ipcMain.handle('debug-info', () => {
+  const ips: { iface: string; address: string }[] = [];
+  for (const [iface, addrs] of Object.entries(os.networkInterfaces())) {
+    for (const a of addrs ?? []) {
+      if (a.family !== 'IPv4' || a.internal) continue;
+      ips.push({ iface, address: a.address });
+    }
+  }
+  const displays = screen.getAllDisplays().map((d) => ({
+    id: d.id,
+    label: d.label || `Display ${d.id}`,
+    size: `${d.size.width}×${d.size.height}`,
+    hz: Math.round(d.displayFrequency),
+    scale: d.scaleFactor,
+    internal: d.internal,
+    wall: wall && !wall.isDestroyed() ? screen.getDisplayMatching(wall.getBounds()).id === d.id : false,
+  }));
+  return {
+    hostname: os.hostname(),
+    ips,
+    ndi: ndi.info(),
+    displays,
+    wallFullscreen: wall?.isFullScreen() ?? false,
+    app: {
+      version: app.getVersion(),
+      packaged: app.isPackaged,
+      electron: process.versions.electron,
+      node: process.versions.node,
+      arch: process.arch,
+      platform: `${os.type()} ${os.release()}`,
+      uptime: Math.round(process.uptime()),
+    },
+  };
 });
 
 // Tally vom NDI-Rückkanal (Programm/Preview je Quelle) an den Operator melden

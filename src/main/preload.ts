@@ -12,3 +12,8 @@ contextBridge.exposeInMainWorld('ndi', {
   sendFrame: (frame: { stream: string; width: number; height: number; fps: number; data: ArrayBuffer }) =>
     ipcRenderer.send('ndi-frame', frame),
 });
+
+// Debug-Panel: Momentaufnahme aus dem Main-Prozess (IPs, NDI-Quelle, Displays)
+contextBridge.exposeInMainWorld('debug', {
+  getInfo: () => ipcRenderer.invoke('debug-info'),
+});

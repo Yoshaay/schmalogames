@@ -61,6 +61,91 @@ $('mask').onclick = () => window.bus.send({ type: 'mask', on: !maskOn });
 ($('ndifps') as HTMLSelectElement).onchange = (e) =>
   window.bus.send({ type: 'ndi-fps', fps: Number((e.target as HTMLSelectElement).value) });
 
+// ---------- Debug-Panel: Netz/NDI/Display-Infos für den Ü-Wagen-Test ----------
+// Wird nur bei geöffnetem Panel gepollt (1×/s). Toggle über Button oder ⌘/Strg+D.
+let debugTimer: ReturnType<typeof setInterval> | null = null;
+
+function cls(ok: boolean, warn = false): string {
+  return ok ? 'good' : warn ? 'warn' : 'bad';
+}
+
+function debugRow(k: string, v: string, c = ''): string {
+  return `<div class="row"><span class="k">${escapeHtml(k)}</span><span class="v ${c}">${escapeHtml(v)}</span></div>`;
+}
+
+async function renderDebug() {
+  const panel = $('debug-panel');
+  let info: DebugInfo;
+  try {
+    info = await window.debug.getInfo();
+  } catch (err) {
+    panel.innerHTML = `<div class="row"><span class="v bad">${escapeHtml(String(err))}</span></div>`;
+    return;
+  }
+  const ndi = info.ndi;
+  const fps = Number(($('ndifps') as HTMLSelectElement).value);
+  // Erwarteter Quellenname, solange noch kein Sender angelegt ist (NDI nimmt
+  // den Hostnamen in Großbuchstaben, ohne .local)
+  const expectedSource = `${info.hostname.replace(/\.local$/i, '').toUpperCase()} (Schmalogames)`;
+  const src = ndi.sources[0];
+
+  let html = '<h3>NDI-Quelle</h3>';
+  html += `<div class="big">${escapeHtml(src?.sourceName ?? expectedSource)}</div>`;
+  const statusText =
+    ndi.status === 'ok' ? `bereit · ${ndi.version}` : ndi.status === 'fehlt' ? `NICHT verfügbar: ${ndi.version}` : 'wartet auf ersten Frame';
+  html += debugRow('Status', statusText, cls(ndi.status === 'ok', ndi.status === 'wartet'));
+  if (src) {
+    html += debugRow('Empfänger', String(src.connections), cls(src.connections > 0, true));
+    html += debugRow('Tally', src.onProgram ? 'ON AIR' : src.onPreview ? 'PREVIEW' : 'keins', src.onProgram ? 'bad' : src.onPreview ? 'warn' : '');
+    if (src.error) html += debugRow('Fehler', src.error, 'bad');
+  }
+  html += debugRow('Rate', `${ndi.sentFps} fps gesendet · ${fps} fps eingestellt`, cls(Math.abs(ndi.sentFps - fps) <= 2, ndi.sentFps > 0));
+  if (ndi.droppedFps > 0) html += debugRow('Verworfen', `${ndi.droppedFps} fps (Sender zu langsam)`, 'warn');
+
+  html += '<h3>Netzwerk</h3>';
+  html += debugRow('Rechner', info.hostname);
+  if (!info.ips.length) html += debugRow('IP', 'keine Verbindung', 'bad');
+  for (const ip of info.ips) html += debugRow(ip.iface, ip.address, 'good');
+
+  html += '<h3>Displays</h3>';
+  for (const d of info.displays) {
+    const tag = `${d.size} @ ${d.hz} Hz${d.scale !== 1 ? ` · ${d.scale}×` : ''}`;
+    const label = `${d.internal ? 'intern' : d.label}${d.wall ? ' · WALL' : ''}`;
+    // Krumme Teiler (z.B. 75 Hz bei 50 fps) juddern — nur zur Info
+    const clean = d.hz > 0 && Math.abs((d.hz / fps) - Math.round(d.hz / fps)) < 0.02;
+    html += debugRow(label, tag, d.wall ? cls(clean, true) : '');
+  }
+  html += debugRow('Wall-Vollbild', info.wallFullscreen ? 'ja' : 'nein');
+
+  html += '<h3>App</h3>';
+  html += debugRow('Version', `${info.app.version} · ${info.app.packaged ? 'gepackt' : 'dev'}`);
+  html += debugRow('Electron', `${info.app.electron} · Node ${info.app.node} · ${info.app.arch}`);
+  html += debugRow('System', info.app.platform);
+  html += debugRow('Läuft seit', `${Math.floor(info.app.uptime / 60)} min ${info.app.uptime % 60} s`);
+  html += '<div class="hint">Werte aktualisieren sich jede Sekunde. NDI-Quelle im Ü-Wagen: Name oben, IP bei Bedarf manuell im NDI Access Manager eintragen.</div>';
+  panel.innerHTML = html;
+}
+
+function toggleDebug(force?: boolean) {
+  const panel = $('debug-panel');
+  const open = force ?? panel.hidden;
+  panel.hidden = !open;
+  $('debug').classList.toggle('debug-on', open);
+  if (debugTimer) clearInterval(debugTimer);
+  debugTimer = null;
+  if (open) {
+    void renderDebug();
+    debugTimer = setInterval(() => void renderDebug(), 1000);
+  }
+}
+$('debug').onclick = () => toggleDebug();
+window.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.code === 'KeyD') {
+    e.preventDefault();
+    toggleDebug();
+  }
+});
+
 // ---------- Live-Vorschau (WebRTC vom Wall-Fenster) ----------
 let previewPC: RTCPeerConnection | null = null;
 let previewPendingIce: RTCIceCandidateInit[] = [];

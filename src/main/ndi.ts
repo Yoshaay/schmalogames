@@ -27,6 +27,28 @@ export interface NdiTallyState {
   connections: number;
 }
 
+/** Momentaufnahme für das Debug-Panel im Operator */
+export interface NdiDebugInfo {
+  /** 'ok' = Lib geladen, 'fehlt' = grandi/libndi nicht ladbar, 'wartet' = noch kein Frame */
+  status: 'ok' | 'fehlt' | 'wartet';
+  /** NDI-SDK-Version bzw. Fehlertext */
+  version: string;
+  sources: {
+    name: string;
+    /** Voller Name im Netz, z.B. "YOSHYS-MAC-3 (Schmalogames)" */
+    sourceName: string;
+    connections: number;
+    onProgram: boolean;
+    onPreview: boolean;
+    /** Letzter Sendefehler (Backoff aktiv), sonst leer */
+    error: string;
+  }[];
+  /** Tatsächlich ins Netz geschickte Frames der letzten Sekunde */
+  sentFps: number;
+  /** Frames, die verworfen wurden, weil der Sender noch beschäftigt war */
+  droppedFps: number;
+}
+
 // grandi ist ESM-only und lädt native Addons — bleibt deshalb external
 // (nicht ins CJS-Bundle). Electron 36 (Node 22) kann ESM per require() laden.
 import type { Grandi, Sender } from 'grandi';
@@ -44,6 +66,51 @@ export class NdiOutput {
   private static readonly RETRY_MS = 5000;
   private retryAt = new Map<string, number>();
   private warned = new Set<string>();
+  private lastError = new Map<string, string>();
+  private loadError = '';
+
+  /** Frame-Statistik (Debug-Panel): Zähler laufen pro Sekunde über */
+  private sentCount = 0;
+  private droppedCount = 0;
+  private sentFps = 0;
+  private droppedFps = 0;
+  private statsTimer: ReturnType<typeof setInterval> | null = null;
+
+  private tickStats() {
+    if (this.statsTimer) return;
+    this.statsTimer = setInterval(() => {
+      this.sentFps = this.sentCount;
+      this.droppedFps = this.droppedCount;
+      this.sentCount = 0;
+      this.droppedCount = 0;
+    }, 1000);
+  }
+
+  /** Momentaufnahme für das Debug-Panel */
+  info(): NdiDebugInfo {
+    const sources: NdiDebugInfo['sources'] = [];
+    for (const [name, sender] of this.senders) {
+      let sourceName = name;
+      let connections = 0;
+      let onProgram = false;
+      let onPreview = false;
+      try {
+        sourceName = sender.sourceName();
+        connections = sender.connections();
+        const t = sender.tally();
+        onProgram = t.onProgram;
+        onPreview = t.onPreview;
+      } catch {}
+      sources.push({ name, sourceName, connections, onProgram, onPreview, error: this.lastError.get(name) ?? '' });
+    }
+    return {
+      status: this.loadFailed ? 'fehlt' : this.grandi ? 'ok' : 'wartet',
+      version: this.loadFailed ? this.loadError : this.grandi ? this.grandi.version() : '',
+      sources,
+      sentFps: this.sentFps,
+      droppedFps: this.droppedFps,
+    };
+  }
 
   /** Tally-Rückkanal: NDI-Empfänger melden pro Quelle, ob sie bei ihnen auf
    *  Programm (on air) oder Preview liegt. Wird gepollt und bei Änderung
@@ -85,7 +152,8 @@ export class NdiOutput {
     } catch (err) {
       // Ohne NDI läuft die App normal weiter (Fenster-Ausgabe als Fallback)
       this.loadFailed = true;
-      console.warn('NDI-Ausgabe nicht verfügbar:', (err as Error).message);
+      this.loadError = (err as Error).message;
+      console.warn('NDI-Ausgabe nicht verfügbar:', this.loadError);
     }
     return this.grandi;
   }
@@ -93,7 +161,11 @@ export class NdiOutput {
   async pushFrame(frame: NdiFrame) {
     const grandi = this.load();
     if (!grandi) return;
-    if (this.busy.has(frame.stream)) return; // Sender hängt noch am letzten Frame
+    this.tickStats();
+    if (this.busy.has(frame.stream)) {
+      this.droppedCount++;
+      return; // Sender hängt noch am letzten Frame
+    }
     const retryAt = this.retryAt.get(frame.stream);
     if (retryAt && Date.now() < retryAt) return; // Fehler-Backoff läuft noch
 
@@ -121,12 +193,15 @@ export class NdiOutput {
         data,
       });
       // Erfolg: Backoff und Warnstatus zurücksetzen
+      this.sentCount++;
       if (this.retryAt.delete(frame.stream)) {
         console.log(`NDI-Quelle wieder da: ${frame.stream}`);
       }
       this.warned.delete(frame.stream);
+      this.lastError.delete(frame.stream);
     } catch (err) {
       this.retryAt.set(frame.stream, Date.now() + NdiOutput.RETRY_MS);
+      this.lastError.set(frame.stream, (err as Error).message);
       if (!this.warned.has(frame.stream)) {
         this.warned.add(frame.stream);
         console.warn(
@@ -141,6 +216,8 @@ export class NdiOutput {
   destroy() {
     if (this.tallyTimer) clearInterval(this.tallyTimer);
     this.tallyTimer = null;
+    if (this.statsTimer) clearInterval(this.statsTimer);
+    this.statsTimer = null;
     for (const sender of this.senders.values()) sender.destroy();
     this.senders.clear();
   }

@@ -7,3 +7,6 @@ fonts/
 
 # Songtexte (Urheberrecht) — bleiben lokal
 src/renderer/games/schmalaoke/PopUp26 LRC/
+
+# electron-builder-Ausgabe (.app / .zip)
+release/

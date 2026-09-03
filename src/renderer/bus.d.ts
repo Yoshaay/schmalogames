@@ -10,7 +10,42 @@ interface NdiBridge {
   sendFrame(frame: { stream: string; width: number; height: number; fps: number; data: ArrayBuffer }): void;
 }
 
+interface DebugInfo {
+  hostname: string;
+  ips: { iface: string; address: string }[];
+  ndi: {
+    status: 'ok' | 'fehlt' | 'wartet';
+    version: string;
+    sources: {
+      name: string;
+      sourceName: string;
+      connections: number;
+      onProgram: boolean;
+      onPreview: boolean;
+      error: string;
+    }[];
+    sentFps: number;
+    droppedFps: number;
+  };
+  displays: { id: number; label: string; size: string; hz: number; scale: number; internal: boolean; wall: boolean }[];
+  wallFullscreen: boolean;
+  app: {
+    version: string;
+    packaged: boolean;
+    electron: string;
+    node: string;
+    arch: string;
+    platform: string;
+    uptime: number;
+  };
+}
+
+interface DebugBridge {
+  getInfo(): Promise<DebugInfo>;
+}
+
 declare interface Window {
   bus: Bus;
   ndi: NdiBridge;
+  debug: DebugBridge;
 }

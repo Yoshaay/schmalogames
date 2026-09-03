@@ -14,6 +14,14 @@ export interface LrcValidation {
   warnings: string[];
 }
 
+/** Zeilen ab dieser Zeichenzahl werden beim Parsen an der Wortgrenze
+ *  nahe der Mitte geteilt (ggf. mehrfach), damit sie auf der Wall in
+ *  voller Schriftgröße stehen statt geschrumpft zu werden. Gemessen mit
+ *  TheSans 700/56px: ~24–27 px pro Zeichen, das pinke Band (BAYERN 3)
+ *  erlaubt 870 px → ab ~36 Zeichen wird sichtbar skaliert. Beat-Tags
+ *  werden auf die Hälften verteilt, Sprungmarken bleiben an der ersten. */
+export const MAX_LINE_CHARS = 36;
+
 export class LRCParser {
   lyricsLines: string[] = [];
   timestamps: number[] = [];
@@ -93,7 +101,50 @@ export class LRCParser {
     const bpm = Math.round(Number(this.metadata.bpm));
     if (Number.isFinite(bpm) && bpm >= 40 && bpm <= 240) this.refBpm = bpm;
 
+    this.splitLongLines();
+
     return this.lyricsLines.length > 0;
+  }
+
+  /** Anzahl der Originalzeilen, die beim Parsen geteilt wurden */
+  splitCount = 0;
+
+  /** Überlange Zeilen an der Wortgrenze nahe der Mitte teilen — rekursiv,
+   *  bis jede Hälfte unter MAX_LINE_CHARS liegt. Alle parallelen Arrays
+   *  (Zeit, Beats, Tag-Flag, Sprungmarke) wachsen mit, damit Indizes in
+   *  Rundown, Sprungmarken und Zeilenzähler weiter zusammenpassen. */
+  private splitLongLines() {
+    const lines: string[] = [];
+    const times: number[] = [];
+    const beats: number[] = [];
+    const tagged: boolean[] = [];
+    const sections: Array<string | null> = [];
+    this.splitCount = 0;
+
+    for (let i = 0; i < this.lyricsLines.length; i++) {
+      const parts = splitLine(this.lyricsLines[i]);
+      if (parts.length > 1) this.splitCount++;
+      // Beats gleichmäßig verteilen, Rest von vorn — nie 0 (wäre ein Fehler)
+      const total = this.beatCounts[i];
+      const base = Math.floor(total / parts.length);
+      let rest = total - base * parts.length;
+      // Zeitstempel: Hälften gleichmäßig bis zur nächsten Zeile verteilen
+      const t0 = this.timestamps[i];
+      const t1 = i + 1 < this.timestamps.length ? this.timestamps[i + 1] : t0 + 4000;
+      parts.forEach((text, k) => {
+        lines.push(text);
+        times.push(Math.round(t0 + ((t1 - t0) * k) / parts.length));
+        beats.push(Math.max(1, base + (rest-- > 0 ? 1 : 0)));
+        tagged.push(this.beatTagged[i]);
+        sections.push(k === 0 ? this.sections[i] : null);
+      });
+    }
+
+    this.lyricsLines = lines;
+    this.timestamps = times;
+    this.beatCounts = beats;
+    this.beatTagged = tagged;
+    this.sections = sections;
   }
 
   /** Sprungpunkte als kompakte Liste */
@@ -142,10 +193,42 @@ export class LRCParser {
       warnings.push('Kein [bpm:]-Tag — Referenztempo für den Abgleich mit der Erkennung fehlt');
     }
 
+    if (this.splitCount > 0) {
+      warnings.push(`${this.splitCount} lange Zeile${this.splitCount > 1 ? 'n' : ''} automatisch geteilt (ab ${MAX_LINE_CHARS} Zeichen)`);
+    }
+
     let level: LrcValidation['level'] = 'ok';
     if (zeroBeatLines.length > 0) level = 'error';
     else if (untaggedCount > 0 || (untaggedCount < lineCount && this.refBpm === 0)) level = 'warn';
 
     return { ok: level === 'ok', level, lineCount, untaggedCount, zeroBeatLines, totalBeats, warnings };
   }
+}
+
+/** Eine Zeile so lange an der Wortgrenze teilen, bis alle Teile kurz genug
+ *  sind. Bevorzugt wird eine Lücke hinter Komma/Satzzeichen, sofern beide
+ *  Hälften damit unter die Grenze kommen (der Bruch wirkt dort natürlich);
+ *  sonst die Lücke, die die Hälften am gleichmäßigsten macht. Ohne
+ *  Leerzeichen bleibt die Zeile, wie sie ist (wird dann skaliert). */
+export function splitLine(text: string, maxChars = MAX_LINE_CHARS): string[] {
+  if (text.length <= maxChars) return [text];
+  let best = -1;
+  let bestScore = Infinity;
+  for (let i = 1; i < text.length - 1; i++) {
+    if (text[i] !== ' ') continue;
+    const left = text.slice(0, i).trimEnd();
+    const right = text.slice(i + 1).trimStart();
+    if (!left || !right) continue;
+    let score = Math.abs(left.length - right.length);
+    const fits = left.length <= maxChars && right.length <= maxChars;
+    if (fits && /[,;:!?.–—-]$/.test(left)) score -= 1000;
+    if (score < bestScore) {
+      bestScore = score;
+      best = i;
+    }
+  }
+  if (best < 0) return [text];
+  const left = text.slice(0, best).trimEnd();
+  const right = text.slice(best + 1).trimStart();
+  return [...splitLine(left, maxChars), ...splitLine(right, maxChars)];
 }
