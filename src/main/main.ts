@@ -2,9 +2,13 @@ import { app, BrowserWindow, ipcMain, screen } from 'electron';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { NdiOutput, NdiFrame } from './ndi';
+import { applyNdiConfig, getActiveAdapter, listAdapters, readNdiSettings, writeNdiSettings } from './ndi-config';
 
 let wall: BrowserWindow | null = null;
 let operator: BrowserWindow | null = null;
+// NDI-Adapterwahl MUSS vor dem ersten grandi-Laden stehen (liest die
+// Konfigdatei nur beim Initialisieren) — grandi lädt lazy beim ersten Frame
+applyNdiConfig();
 const ndi = new NdiOutput();
 
 function createWindows() {
@@ -107,13 +111,7 @@ ipcMain.on('ndi-frame', (_event, frame: NdiFrame) => {
 // Debug-Panel im Operator: Rechnername, IPs, NDI-Quelle, Frame-Statistik,
 // Display-Refresh — alles, was man beim Ü-Wagen-Test schnell sehen will
 ipcMain.handle('debug-info', () => {
-  const ips: { iface: string; address: string }[] = [];
-  for (const [iface, addrs] of Object.entries(os.networkInterfaces())) {
-    for (const a of addrs ?? []) {
-      if (a.family !== 'IPv4' || a.internal) continue;
-      ips.push({ iface, address: a.address });
-    }
-  }
+  const ips = listAdapters();
   const displays = screen.getAllDisplays().map((d) => ({
     id: d.id,
     label: d.label || `Display ${d.id}`,
@@ -127,6 +125,8 @@ ipcMain.handle('debug-info', () => {
     hostname: os.hostname(),
     ips,
     ndi: ndi.info(),
+    // Adapter: gespeicherte Einstellung vs. das, was die Lib beim Start bekam
+    ndiAdapter: { setting: readNdiSettings().adapter, active: getActiveAdapter() },
     displays,
     wallFullscreen: wall?.isFullScreen() ?? false,
     app: {
@@ -139,6 +139,19 @@ ipcMain.handle('debug-info', () => {
       uptime: Math.round(process.uptime()),
     },
   };
+});
+
+// NDI-Adapter wählen ('' = alle). Greift erst nach Neustart — die libndi
+// liest ihre Konfigdatei nur beim Initialisieren.
+ipcMain.handle('ndi-adapter-set', (_event, adapter: unknown) => {
+  writeNdiSettings({ adapter: typeof adapter === 'string' ? adapter : '' });
+  return readNdiSettings().adapter;
+});
+
+// App neu starten (nach Adapterwechsel) — gleiche Argumente, gleiche Instanz-Sperre
+ipcMain.on('app-relaunch', () => {
+  app.relaunch();
+  app.exit(0);
 });
 
 // Tally vom NDI-Rückkanal (Programm/Preview je Quelle) an den Operator melden

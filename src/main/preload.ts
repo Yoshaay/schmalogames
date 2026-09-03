@@ -16,4 +16,6 @@ contextBridge.exposeInMainWorld('ndi', {
 // Debug-Panel: Momentaufnahme aus dem Main-Prozess (IPs, NDI-Quelle, Displays)
 contextBridge.exposeInMainWorld('debug', {
   getInfo: () => ipcRenderer.invoke('debug-info'),
+  setNdiAdapter: (adapter: string) => ipcRenderer.invoke('ndi-adapter-set', adapter),
+  relaunch: () => ipcRenderer.send('app-relaunch'),
 });

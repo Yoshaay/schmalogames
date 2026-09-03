@@ -73,8 +73,41 @@ function debugRow(k: string, v: string, c = ''): string {
   return `<div class="row"><span class="k">${escapeHtml(k)}</span><span class="v ${c}">${escapeHtml(v)}</span></div>`;
 }
 
+/** Adapter-Dropdown: Optionen nur neu bauen, wenn sich die IP-Liste ändert —
+ *  das Panel rendert jede Sekunde, das Dropdown darf dabei nicht zuspringen */
+let adapterOptionsKey = '';
+function syncAdapterSelect(info: DebugInfo) {
+  const sel = $('ndi-adapter') as HTMLSelectElement;
+  const key = info.ips.map((ip) => `${ip.iface}=${ip.address}`).join(',');
+  if (key !== adapterOptionsKey) {
+    adapterOptionsKey = key;
+    sel.innerHTML = '<option value="">Alle Adapter</option>';
+    for (const ip of info.ips) {
+      const opt = document.createElement('option');
+      opt.value = ip.address;
+      opt.textContent = `${ip.iface} · ${ip.address}`;
+      sel.appendChild(opt);
+    }
+    // Gespeicherter Adapter, der gerade nicht existiert: trotzdem anzeigen
+    if (info.ndiAdapter.setting && !info.ips.some((ip) => ip.address === info.ndiAdapter.setting)) {
+      const opt = document.createElement('option');
+      opt.value = info.ndiAdapter.setting;
+      opt.textContent = `${info.ndiAdapter.setting} (nicht vorhanden)`;
+      sel.appendChild(opt);
+    }
+  }
+  if (document.activeElement !== sel) sel.value = info.ndiAdapter.setting;
+  // Hinweis + Neustart-Button, sobald Einstellung und aktiver Wert auseinanderliegen
+  $('ndi-adapter-hint').hidden = info.ndiAdapter.setting === info.ndiAdapter.active;
+}
+($('ndi-adapter') as HTMLSelectElement).onchange = async (e) => {
+  await window.debug.setNdiAdapter((e.target as HTMLSelectElement).value);
+  void renderDebug();
+};
+$('ndi-relaunch').onclick = () => window.debug.relaunch();
+
 async function renderDebug() {
-  const panel = $('debug-panel');
+  const panel = $('debug-info');
   let info: DebugInfo;
   try {
     info = await window.debug.getInfo();
@@ -82,6 +115,7 @@ async function renderDebug() {
     panel.innerHTML = `<div class="row"><span class="v bad">${escapeHtml(String(err))}</span></div>`;
     return;
   }
+  syncAdapterSelect(info);
   const ndi = info.ndi;
   const fps = Number(($('ndifps') as HTMLSelectElement).value);
   // Erwarteter Quellenname, solange noch kein Sender angelegt ist (NDI nimmt
@@ -105,7 +139,12 @@ async function renderDebug() {
   html += '<h3>Netzwerk</h3>';
   html += debugRow('Rechner', info.hostname);
   if (!info.ips.length) html += debugRow('IP', 'keine Verbindung', 'bad');
-  for (const ip of info.ips) html += debugRow(ip.iface, ip.address, 'good');
+  const active = info.ndiAdapter.active;
+  for (const ip of info.ips) {
+    // Aktiver NDI-Adapter grün, die übrigen gedimmt, wenn einer gewählt ist
+    const used = !active || ip.address === active;
+    html += debugRow(ip.iface, `${ip.address}${used ? ' · NDI' : ''}`, used ? 'good' : '');
+  }
 
   html += '<h3>Displays</h3>';
   for (const d of info.displays) {
@@ -128,7 +167,8 @@ async function renderDebug() {
 
 function toggleDebug(force?: boolean) {
   const panel = $('debug-panel');
-  const open = force ?? panel.hidden;
+  // hidden ist in neueren DOM-Typen boolean | "until-found" — auf boolean normieren
+  const open = force ?? panel.hidden !== false;
   panel.hidden = !open;
   $('debug').classList.toggle('debug-on', open);
   if (debugTimer) clearInterval(debugTimer);

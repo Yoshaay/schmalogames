@@ -59,13 +59,14 @@ const ANCHOR_Y = 310;
  *  kein Umbruch — Zeilen sind zeichenmäßig unbegrenzt. Wird eine Zeile
  *  breiter als LYRIC_MAX_W, schrumpft die Schrift proportional, bis sie
  *  passt (wie der Cheer-Titel im Schmalogroove). LYRIC_X sitzt rechts
- *  der Bildmitte, weil das Band links spitz zuläuft — 640 ist die
- *  optische Mitte der Fläche. LYRIC_MAX_W ist so gewählt, dass auch
- *  Unterlängen am linken, spitz zulaufenden Rand nicht angeschnitten
- *  werden. */
+ *  der Bildmitte, weil das Band links spitz zuläuft: auf Zeilenhöhe
+ *  (y ≈ 290–335 inkl. Unterlängen) liegt die linke Bandkante bei
+ *  x ≈ 160–205, rechts geht das Band bis 1200. Die Fläche ist also
+ *  ~200–1180, Mitte 690. LYRIC_MAX_W lässt links ~15 px Luft vor der
+ *  schrägen Kante und rechts ~40 px zum Bildrand. */
 const LYRIC_SIZE = 56;
-const LYRIC_X = 640;
-const LYRIC_MAX_W = 870;
+const LYRIC_X = 690;
+const LYRIC_MAX_W = 940;
 
 /** Clip-Maske für die Lyrics: das pinke Band aus dem finalen Asset
  *  (final/Untertitel_BG_v2, 641×1025), pixelgenau ausgemessen und in

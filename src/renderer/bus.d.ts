@@ -27,6 +27,8 @@ interface DebugInfo {
     sentFps: number;
     droppedFps: number;
   };
+  /** NDI-Adapterwahl: setting = gespeichert, active = beim Start angewendet ('' = alle) */
+  ndiAdapter: { setting: string; active: string };
   displays: { id: number; label: string; size: string; hz: number; scale: number; internal: boolean; wall: boolean }[];
   wallFullscreen: boolean;
   app: {
@@ -42,6 +44,9 @@ interface DebugInfo {
 
 interface DebugBridge {
   getInfo(): Promise<DebugInfo>;
+  /** NDI auf einen Adapter (IPv4) beschränken, '' = alle; greift nach Neustart */
+  setNdiAdapter(adapter: string): Promise<string>;
+  relaunch(): void;
 }
 
 declare interface Window {

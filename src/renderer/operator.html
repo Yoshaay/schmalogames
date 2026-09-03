@@ -477,6 +477,37 @@
         font-size: 10px;
         color: var(--ink-dim);
       }
+      #debug-ctl {
+        margin-top: 10px;
+        padding-top: 8px;
+        border-top: 1px solid var(--panel-edge);
+      }
+      #debug-ctl h3 {
+        margin-top: 0;
+      }
+      #debug-ctl .ctl-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 3px 0;
+      }
+      #debug-ctl select {
+        font: inherit;
+        color: var(--ink);
+        background: #1d2029;
+        border: 1px solid var(--panel-edge);
+        border-radius: 4px;
+        height: 28px;
+        padding: 0 6px;
+        cursor: pointer;
+        min-width: 220px;
+      }
+      #debug-ctl button {
+        height: 28px;
+        padding: 0 10px;
+        font-size: 11px;
+      }
 
       /* Maske ist ON AIR sichtbar — deutlich warnen, solange sie aktiv ist */
       button.mask-on {
@@ -736,7 +767,20 @@
       </button>
     </header>
 
-    <div id="debug-panel" hidden><div class="hint">Lade …</div></div>
+    <div id="debug-panel" hidden>
+      <div id="debug-info"><div class="hint">Lade …</div></div>
+      <div id="debug-ctl">
+        <h3>NDI-Adapter</h3>
+        <label class="ctl-row" title="Über welchen Netzwerkadapter NDI senden und sich per mDNS melden soll. „Alle“ meldet jede IP — der Empfänger sucht sich dann eine aus (z.B. das WLAN statt der Ethernet-Strecke). Greift erst nach Neustart der App.">
+          <span class="k">senden über</span>
+          <select id="ndi-adapter"><option value="">Alle Adapter</option></select>
+        </label>
+        <div class="ctl-row" id="ndi-adapter-hint" hidden>
+          <span class="v warn">Änderung greift erst nach Neustart</span>
+          <button id="ndi-relaunch">App neu starten</button>
+        </div>
+      </div>
+    </div>
 
     <nav id="gamebar">
       <span class="head">Spiele</span>
