@@ -534,6 +534,21 @@
         border-color: rgba(231, 29, 115, 0.6);
       }
 
+      /* An/Aus-Schalter bei den Einstellungen (SettingDef.variant 'toggle') */
+      button.toggle {
+        height: 26px;
+        min-width: 58px;
+        padding: 0 10px;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        letter-spacing: 0.12em;
+        color: var(--ink-dim);
+      }
+      button.toggle[aria-checked='true'] {
+        color: var(--primary);
+        border-color: rgba(var(--primary-rgb), 0.5);
+        background: rgba(var(--primary-rgb), 0.12);
+      }
       .btn-action {
         width: 100%;
         margin-bottom: 8px;
@@ -660,11 +675,20 @@
         background: #101218;
         border: 1px solid var(--panel-edge);
         border-radius: 6px;
+      }
+      /* Greifbar ist der ganze Body (Skala + Track + überstehende Griffkappe) */
+      .fader-body {
         cursor: grab;
         touch-action: none;
       }
-      .fader-track:active {
+      .fader-body:active {
         cursor: grabbing;
+      }
+      /* Alle Kinder des Tracks sind reine Optik: Maus geht immer an den
+         Track selbst (Hand-Cursor + Pointer-Events auf der ganzen Länge —
+         die geclippte Füllzone unter dem Griff hatte die Maus geschluckt) */
+      .fader-track > * {
+        pointer-events: none;
       }
       /* Farbzonen wie das Meter auf der Wall: unten grün, dann orange, oben pink */
       .fader-zones {
@@ -707,7 +731,10 @@
         background: linear-gradient(#3a3f4e, #20232d 45%, #171a22);
         border: 1px solid #4a5064;
         box-shadow: 0 4px 10px rgba(0, 0, 0, 0.55);
-        pointer-events: none;
+        /* Die Kappe selbst greift überall, auch wo sie über den Track hinaussteht
+           (Events laufen über Track → Body zum Handler) */
+        pointer-events: auto;
+        cursor: grab;
       }
       .fader-grip::after {
         content: '';

@@ -43,8 +43,9 @@ export interface SettingDef {
   unit?: string;
   /** Nicht speichern — startet bei jedem Spielstart wieder auf default (z.B. Live-Fader) */
   transient?: boolean;
-  /** 'fader': großer vertikaler Regler im Live-Bereich statt Slider bei den Einstellungen */
-  variant?: 'fader';
+  /** 'fader': großer vertikaler Regler im Live-Bereich statt Slider bei den
+   *  Einstellungen; 'toggle': An/Aus-Schalter (Wert 0/1, min/max/step egal) */
+  variant?: 'fader' | 'toggle';
 }
 
 export type SettingValues = Record<string, number>;

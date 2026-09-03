@@ -12,6 +12,7 @@ export const applausometerEntry: GameEntry = {
   settings: [
     { key: 'fader', label: 'Applaus', min: 0, max: 100, step: 1, default: 0, unit: '%', transient: true, variant: 'fader' },
     { key: 'threshold', label: 'Grenzwert', min: 20, max: 100, step: 5, default: 85, unit: '%' },
+    { key: 'peak', label: 'Peak-Balken (blau)', min: 0, max: 1, step: 1, default: 1, variant: 'toggle' },
   ],
   actions: [{ id: 'reset', label: 'Neue Runde' }],
   create: () => new Applausometer(),

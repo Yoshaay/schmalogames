@@ -283,6 +283,28 @@ function buildPanels(entry: GameEntry | null) {
     const wrap = document.createElement('div');
     wrap.className = 'setting';
 
+    if (def.variant === 'toggle') {
+      // An/Aus-Schalter: Label links, Switch rechts — Wert 0/1 wie ein Regler
+      const row = document.createElement('div');
+      row.className = 'row';
+      const label = document.createElement('label');
+      label.textContent = def.label;
+      const sw = document.createElement('button');
+      sw.className = 'toggle';
+      sw.dataset.key = def.key;
+      sw.setAttribute('role', 'switch');
+      setToggleView(sw, def.default > 0);
+      sw.onclick = () => {
+        const on = sw.getAttribute('aria-checked') !== 'true';
+        setToggleView(sw, on);
+        window.bus.send({ type: 'set', key: def.key, value: on ? 1 : 0 });
+      };
+      row.append(label, sw);
+      wrap.append(row);
+      settingsEl.appendChild(wrap);
+      continue;
+    }
+
     const row = document.createElement('div');
     row.className = 'row';
     const label = document.createElement('label');
@@ -371,6 +393,10 @@ function buildFader(def: SettingDef): HTMLElement {
   root.append(val, body, label);
   setFaderView(root, def, def.default);
 
+  // Pointer-Handler auf dem ganzen Fader-Body, nicht nur auf dem Track:
+  // die Griffkappe steht am Anschlag zur Hälfte über den Track hinaus
+  // (unten bei 0 %, oben bei 100 %) — dort muss sie trotzdem greifen.
+  // Der Wert kommt immer aus der Track-Geometrie, geclampt auf 0..1.
   const apply = (e: PointerEvent) => {
     const r = track.getBoundingClientRect();
     const frac = Math.min(1, Math.max(0, (r.bottom - e.clientY) / r.height));
@@ -378,21 +404,26 @@ function buildFader(def: SettingDef): HTMLElement {
     setFaderView(root, def, value);
     window.bus.send({ type: 'set', key: def.key, value });
   };
-  track.addEventListener('pointerdown', (e) => {
+  body.addEventListener('pointerdown', (e) => {
     root.dataset.dragging = '1';
-    track.setPointerCapture(e.pointerId);
+    body.setPointerCapture(e.pointerId);
     apply(e);
   });
-  track.addEventListener('pointermove', (e) => {
+  body.addEventListener('pointermove', (e) => {
     if (root.dataset.dragging) apply(e);
   });
   const endDrag = () => {
     delete root.dataset.dragging;
   };
-  track.addEventListener('pointerup', endDrag);
-  track.addEventListener('pointercancel', endDrag);
+  body.addEventListener('pointerup', endDrag);
+  body.addEventListener('pointercancel', endDrag);
 
   return root;
+}
+
+function setToggleView(sw: HTMLButtonElement, on: boolean) {
+  sw.setAttribute('aria-checked', on ? 'true' : 'false');
+  sw.textContent = on ? 'AN' : 'AUS';
 }
 
 function setFaderView(root: HTMLElement, def: SettingDef, value: number) {
@@ -500,6 +531,11 @@ window.bus.onMessage((raw) => {
     if (def.variant === 'fader') {
       const fader = document.querySelector<HTMLElement>(`.fader[data-key="${def.key}"]`);
       if (fader && !fader.dataset.dragging) setFaderView(fader, def, value);
+      continue;
+    }
+    if (def.variant === 'toggle') {
+      const sw = document.querySelector<HTMLButtonElement>(`.toggle[data-key="${def.key}"]`);
+      if (sw) setToggleView(sw, value > 0);
       continue;
     }
     const slider = document.querySelector<HTMLInputElement>(`input[data-key="${def.key}"]`);

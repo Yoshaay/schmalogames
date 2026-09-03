@@ -41,6 +41,8 @@ export class Applausometer implements Game {
   private level = 0;
   /** Peak-Marker, sinkt langsam */
   private peak = 0;
+  /** Peak-Balken (blau) zeichnen — Operator-Toggle */
+  private showPeak = true;
   private time = 0;
   /** Nach einem Gewinn: kurze Pause, bevor der Pegel wieder steigen kann */
   private winTimer = 0;
@@ -66,6 +68,7 @@ export class Applausometer implements Game {
   applySettings(values: SettingValues) {
     this.fader = (values.fader ?? this.fader * 100) / 100;
     this.threshold = (values.threshold ?? this.threshold * 100) / 100;
+    this.showPeak = (values.peak ?? 1) > 0;
   }
 
   action(id: string) {
@@ -202,9 +205,11 @@ export class Applausometer implements Game {
 
     // Peak-Marker — BR3-Blau statt Dunkel: fast-schwarze Pixel würden
     // beim Luma-Key im Ü-Wagen mit ausgestanzt
-    const peakY = fillBottom - this.peak * fillH;
-    g.fillStyle = '#2699d6';
-    g.fillRect(0, peakY - 4, SLOT[1][0], 8);
+    if (this.showPeak) {
+      const peakY = fillBottom - this.peak * fillH;
+      g.fillStyle = '#2699d6';
+      g.fillRect(0, peakY - 4, SLOT[1][0], 8);
+    }
 
     // Grenzwert: gestrichelte Pink-Linie — läuft im selben Clip wie die
     // Füllung und ist damit NUR auf der weißen Bahn sichtbar
