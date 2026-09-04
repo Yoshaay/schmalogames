@@ -24,6 +24,8 @@ await esbuild.build({
 
 cpSync('src/renderer/wall.html', 'dist/renderer/wall.html');
 cpSync('src/renderer/operator.html', 'dist/renderer/operator.html');
+// App-Logo für die Operator-Kopfzeile (verkleinerte Fassung von build/icon.png)
+cpSync('src/renderer/logo.png', 'dist/renderer/logo.png');
 
 // TheSans (BR-Hausschrift) aus dem Projekt-Fontordner mitnehmen.
 // Der Ordner ist lizenzbedingt NICHT im Repo — ohne ihn greift der Fallback-Font.

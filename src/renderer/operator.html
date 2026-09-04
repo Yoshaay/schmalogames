@@ -91,6 +91,14 @@
         padding: 14px 20px 12px;
         border-bottom: 1px solid var(--panel-edge);
       }
+      header .logo {
+        width: 40px;
+        height: 40px;
+        margin-right: -4px;
+        flex: none;
+        /* Icon-Datei trägt die Apple-Rundung samt Alpha bereits selbst */
+        filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.45));
+      }
       header h1 {
         font-family: var(--font-display);
         font-weight: 700;
@@ -759,6 +767,7 @@
   </head>
   <body>
     <header>
+      <img class="logo" src="logo.png" alt="" draggable="false" />
       <h1>SCHMALO<span>GAMES</span></h1>
       <div class="header-sub">Videowall Operator</div>
       <div
