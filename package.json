@@ -48,10 +48,15 @@
         }
       ],
       "category": "public.app-category.entertainment",
-      "identity": null,
-      "hardenedRuntime": false,
+      "hardenedRuntime": true,
       "gatekeeperAssess": false,
-      "icon": "build/icon.icns"
+      "icon": "build/icon.icns",
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": true,
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Schmalogames misst mit dem Mikrofon den Applaus-Pegel."
+      }
     },
     "npmRebuild": false
   }

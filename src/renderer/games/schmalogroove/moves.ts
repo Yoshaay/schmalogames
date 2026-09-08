@@ -50,7 +50,15 @@ export function bendKnees(bones: MoveBones, a: number) {
 }
 
 /* Jeder Move setzt auf einer neutralen Pose auf. Gewechselt wird alle 8 Beats. */
-export const MOVES: Array<{ name: string; fn(b: MoveBones, c: MoveCtx): void }> = [
+export interface Move {
+  name: string;
+  /** true = Move bleibt im Code, wird aber weder zufällig gewählt noch im Operator angeboten */
+  disabled?: boolean;
+  fn(b: MoveBones, c: MoveCtx): void;
+}
+
+/** Alle Moves inkl. deaktivierter — die Spiel-Logik nutzt MOVES (gefiltert) */
+const ALL_MOVES: Move[] = [
   {
     name: 'GROOVE', // der Basis-Move
     fn(b, c) {
@@ -253,6 +261,7 @@ export const MOVES: Array<{ name: string; fn(b: MoveBones, c: MoveCtx): void }> 
   },
   {
     name: 'MAWN-LOWER', // Rasenmäher anreißen: links unten am Holm, rechts zieht das Starterseil hoch
+    disabled: true, // seit 2026-09-08 auf Wunsch aus der Rotation genommen
     fn(b, c) {
       const { k, p, dip, dir, s1, nod } = c;
       const acc = c.acc ?? 0;
@@ -315,8 +324,11 @@ export const MOVES: Array<{ name: string; fn(b: MoveBones, c: MoveCtx): void }> 
   },
 ];
 
-/** Namen aller prozeduralen Moves — fürs Operator-Panel (Pose-Anwahl) */
+/** Aktive Moves — Zufallsrotation und Operator-Pose-Anwahl */
+export const MOVES: Move[] = ALL_MOVES.filter((m) => !m.disabled);
+
+/** Namen aller aktiven Moves — fürs Operator-Panel (Pose-Anwahl) */
 export const MOVE_NAMES = MOVES.map((m) => m.name);
 
-/** Nur für Geometrie-Tests (headless): Zugriff auf die Move-Funktionen */
-export const MOVES_FOR_TEST = MOVES;
+/** Nur für Geometrie-Tests (headless): auch deaktivierte Moves prüfbar */
+export const MOVES_FOR_TEST = ALL_MOVES;

@@ -27,10 +27,36 @@ npm run dist     # fertige App: release/mac-arm64/Schmalogames.app
 npm run dist:zip # dasselbe + ZIP zum Weitergeben (release/*.zip)
 ```
 
-Die gepackte App läuft ohne VS Code/Node — einfach die `.app` starten
-(unsigniert, lokal gebaut; beim ersten Start im fremden Netz fragt macOS
-nach der Firewall-Freigabe → **Erlauben**, sonst findet der Ü-Wagen die
-NDI-Quelle nicht).
+Die gepackte App läuft ohne VS Code/Node — einfach die `.app` starten.
+Beim ersten Start im fremden Netz fragt macOS nach der Firewall-Freigabe →
+**Erlauben**, sonst findet der Ü-Wagen die NDI-Quelle nicht.
+
+### Signieren & Notarisieren
+
+Der Build signiert automatisch mit dem „Developer ID Application“-Zertifikat
+aus dem Schlüsselbund (Hardened Runtime, Entitlements in
+`build/entitlements.mac.plist`: JIT, Mikrofon, Netzwerk, fremde Dylibs für
+grandi/libndi). Nur Apple Silicon (arm64).
+
+Damit Gatekeeper die App auf fremden Macs ohne Nachfrage öffnet, muss sie
+zusätzlich **notarisiert** werden. Einmalig die Zugangsdaten im Schlüsselbund
+hinterlegen (App-spezifisches Passwort unter appleid.apple.com anlegen):
+
+```bash
+xcrun notarytool store-credentials schmalogames \
+  --apple-id DEINE@APPLE-ID --team-id 9243MN284J
+```
+
+Danach baut dieser Aufruf signiert **und** notarisiert:
+
+```bash
+APPLE_KEYCHAIN_PROFILE=schmalogames npm run dist:zip
+```
+
+Ohne die Variable wird nur signiert; der Empfänger muss dann beim ersten
+Start über Systemeinstellungen → Datenschutz & Sicherheit → „Trotzdem
+öffnen“ freigeben. Prüfen: `spctl -a -t exec -vv release/mac-arm64/Schmalogames.app`
+(notarisiert = `accepted`).
 
 - **F11** schaltet die Wall in den Vollbildmodus (auch per Button im Operator).
 - Das Wall-Fenster auf den Videowall-Ausgang ziehen, Vollbild an — fertig.
