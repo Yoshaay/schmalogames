@@ -125,6 +125,17 @@ hochkante Sidebar:
   statt Bold gesetzt, kursiv als Italic, unterstrichen als Balken; das
   Rundown zeigt es entsprechend. Die Tags zählen nicht zur Zeilenlänge und
   werden beim automatischen Teilen sauber geschlossen und wieder geöffnet.
+- **Notfall-Durchsage:** Button im Panel (BAYERN 3 und BAYERN 1) schaltet den
+  Modus an und öffnet ein Textfeld für Suchmeldungen, Warnhinweise o. ä.
+  Erst „Fertig“ schickt den Text live auf die Wall (⌘⏎ im Feld geht auch)
+  — an dieselbe Stelle wie die Lyrics (Band bzw. unteres Drittel), die
+  solange ausgeblendet sind. Der Text fährt als **Laufband** in einer Zeile
+  von rechts nach links durch (Schrift und Höhe wie die Lyrics, Absätze
+  werden mit `+++` verbunden), nach einer Lücke folgt die nächste Runde
+  (`NOTICE_SPEED`/`NOTICE_GAP` in `schmalaoke.ts`). Text ändern + erneut „Fertig“ ersetzt die laufende
+  Durchsage, Button erneut drücken nimmt sie von der Wall, die Lyrics laufen
+  dort weiter, wo sie standen. Der Entwurf bleibt im Textfeld erhalten. Beim
+  Tippen in ein Eingabefeld feuern Ziffern keine Hotkeys mehr.
 - **Auto-Advance:** Beat-Erkennung über wählbaren Audio-Eingang zählt Zeilen
   automatisch weiter (`<N>`-Tags = Beats pro Zeile; ein `[bpm:162]`-Tag im
   Kopf der LRC nennt das Tempo, auf das die Takte gebaut sind — das Panel

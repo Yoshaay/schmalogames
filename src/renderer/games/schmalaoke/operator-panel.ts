@@ -37,6 +37,8 @@ interface PresenterState {
   autoArmed: boolean;
   autoSpaces: number;
   refBpm: number;
+  /** Notfall-Durchsage auf der Wall ('' = keine) */
+  notice: string;
 }
 
 const STYLE = `
@@ -151,6 +153,22 @@ const STYLE = `
   .ka-beat.on { background: var(--primary); box-shadow: 0 0 10px rgba(var(--primary-rgb), 0.8); }
   .ka-beat.warn { background: #f9b233; box-shadow: 0 0 10px rgba(249, 178, 51, 0.8); }
 
+  /* Notfall-Durchsage: Live-Zustand in Magenta (Warnfarbe), Textfeld nur
+     im aktivierten Modus sichtbar */
+  .ka-root button.ka-notice.live {
+    color: #ffffff; background: var(--live); border-color: var(--live); font-weight: 700;
+  }
+  .ka-notice-box { display: flex; flex-direction: column; gap: 6px; }
+  .ka-notice-box textarea {
+    width: 100%; box-sizing: border-box; min-height: 88px; resize: vertical;
+    font-family: var(--font-body); font-size: 13px; line-height: 1.35; color: var(--ink);
+    background: #1d2029; border: 1px solid rgba(231, 29, 115, 0.5); border-radius: 4px;
+    padding: 8px 10px;
+  }
+  .ka-notice-box textarea:focus { border-color: var(--live); outline: none; }
+  .ka-notice-box .ka-notice-hint { font-family: var(--font-mono); font-size: 10px; color: var(--ink-dim); }
+  .ka-status .notice-live { color: var(--live); font-weight: 700; }
+
   /* Leere Setlist: Drop-Hinweis mittig, wie im Original */
   .ka-empty {
     height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -196,6 +214,14 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
           <div class="ka-grid2">
             <button data-id="restart" title="Song von vorn — Taste R">Neustart</button>
             <button data-id="next" title="Taste N">Nächster Song</button>
+          </div>
+          <div class="ka-head" title="Freier Text (Suchmeldung, Warnung) statt der Lyrics — an derselben Stelle wie die Untertitel">Notfall-Durchsage</div>
+          <button data-id="notice" class="ka-btn-wide ka-notice" title="Modus an/aus — AUS nimmt die Durchsage sofort von der Wall">Notfall-Durchsage</button>
+          <div class="ka-notice-box" data-id="noticebox" hidden>
+            <textarea data-id="noticetext" rows="4" spellcheck="false"
+              placeholder="Text der Durchsage … (fährt als Laufband in einer Zeile durch, Absätze werden mit +++ verbunden)"></textarea>
+            <button data-id="noticesend" class="ka-btn-wide" title="Text live auf die Wall schicken (⌘⏎ im Textfeld)">Fertig — live schicken</button>
+            <span class="ka-notice-hint" data-id="noticehint">Text eintippen, dann „Fertig“ — erst dann geht er raus.</span>
           </div>
           <div class="ka-head" title="Beats zählen die Zeilen weiter — braucht &lt;N&gt;-Tags in der LRC">Auto-Advance · Beat-Sync</div>
           <button data-id="auto" class="ka-btn-wide" title="Taste A schaltet um"><span class="ka-beat" data-id="beatdot"></span><span data-id="autolabel">Auto-Advance</span></button>
@@ -484,6 +510,82 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
 
   q('restart').onclick = () => api.send({ cmd: 'restart' });
 
+  /* ---------- Notfall-Durchsage ---------- */
+  // Modus AN = Textfeld sichtbar, noch nichts auf der Wall. „Fertig“ schickt
+  // den Text live (und ersetzt eine laufende Durchsage). Modus AUS nimmt
+  // die Durchsage von der Wall — die Lyrics laufen an der Stelle weiter,
+  // an der sie standen. Der Entwurf bleibt über Spielwechsel erhalten.
+  const NOTICE_DRAFT_KEY = 'schmalaoke.noticeDraft';
+  const noticeBtn = q('notice') as HTMLButtonElement;
+  const noticeBox = q('noticebox');
+  const noticeText = container.querySelector<HTMLTextAreaElement>('[data-id="noticetext"]')!;
+  const noticeSend = q('noticesend') as HTMLButtonElement;
+  const noticeHint = q('noticehint');
+  let noticeMode = false;
+  /** Text, der gerade auf der Wall steht ('' = keine Durchsage) */
+  let noticeLive = '';
+  noticeText.value = localStorage.getItem(NOTICE_DRAFT_KEY) ?? '';
+
+  function renderNotice() {
+    noticeBox.hidden = !noticeMode;
+    noticeBtn.classList.toggle('live', !!noticeLive);
+    noticeBtn.classList.toggle('armed', noticeMode && !noticeLive);
+    noticeBtn.textContent = noticeLive
+      ? 'Notfall-Durchsage: LIVE — ausschalten'
+      : noticeMode
+        ? 'Notfall-Durchsage: bereit — abbrechen'
+        : 'Notfall-Durchsage';
+    const dirty = noticeText.value.trim() !== noticeLive;
+    noticeSend.textContent = noticeLive ? (dirty ? 'Fertig — Text aktualisieren' : 'Fertig — live') : 'Fertig — live schicken';
+    noticeSend.classList.toggle('ka-btn-primary', noticeMode && dirty && !!noticeText.value.trim());
+    noticeHint.textContent = noticeLive
+      ? dirty
+        ? 'Geänderter Text ist noch NICHT auf der Wall — „Fertig“ schickt ihn.'
+        : 'Steht live auf der Wall, Lyrics sind ausgeblendet.'
+      : 'Text eintippen, dann „Fertig“ — erst dann geht er raus.';
+    updateMeta();
+  }
+
+  noticeBtn.onclick = () => {
+    if (noticeMode) {
+      noticeMode = false;
+      if (noticeLive) {
+        noticeLive = '';
+        api.send({ cmd: 'notice', text: '' });
+      }
+    } else {
+      noticeMode = true;
+      noticeText.focus();
+    }
+    renderNotice();
+  };
+  noticeSend.onclick = () => {
+    const text = noticeText.value.trim();
+    if (!text) {
+      noticeHint.textContent = 'Kein Text — nichts geschickt.';
+      noticeText.focus();
+      return;
+    }
+    noticeLive = text;
+    api.send({ cmd: 'notice', text });
+    renderNotice();
+    noticeText.blur();
+  };
+  noticeText.addEventListener('input', () => {
+    localStorage.setItem(NOTICE_DRAFT_KEY, noticeText.value);
+    renderNotice();
+  });
+  noticeText.addEventListener('keydown', (e) => {
+    // ⌘⏎ / Ctrl⏎ = Fertig, Esc = Feld verlassen (Tasten gehen dann wieder ans Spiel)
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      noticeSend.click();
+    } else if (e.key === 'Escape') {
+      noticeText.blur();
+    }
+    e.stopPropagation();
+  });
+
   /* ---------- Auto-Advance ---------- */
   let autoOn = false;
   let beatDotTimer = -1;
@@ -647,8 +749,12 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
 
   /** Statuszeile unten: nur Zustand — Titel steht in Setlist & Status-Panel */
   function updateMeta() {
-    if (!presenter || activeIndex < 0) return;
     const parts: string[] = [];
+    if (noticeLive) parts.push('<span class="notice-live">NOTFALL-DURCHSAGE LIVE</span>');
+    if (!presenter || activeIndex < 0) {
+      if (noticeLive) metaEl.innerHTML = parts.join(' · ');
+      return;
+    }
     if (presenter.ended) parts.push('Song beendet');
     else if (!presenter.started) parts.push('Bereit — Leertaste startet');
     else if (presenter.remaining >= 0) {
@@ -703,6 +809,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
 
   renderSongs();
   renderMarkers();
+  renderNotice();
   // Eingangsliste + aktuellen Stand anfordern (Panel evtl. neu aufgebaut)
   api.send({ cmd: 'hello' });
 
@@ -718,6 +825,16 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
         if (autoOn !== presenter.autoMode) {
           autoOn = presenter.autoMode;
           renderAuto();
+        }
+        // Durchsage-Zustand kommt vom Spiel (Panel evtl. neu aufgebaut)
+        const liveNotice = presenter.notice ?? '';
+        if (liveNotice !== noticeLive) {
+          noticeLive = liveNotice;
+          if (noticeLive) {
+            noticeMode = true;
+            if (!noticeText.value.trim()) noticeText.value = noticeLive;
+          }
+          renderNotice();
         }
         if (activeIndex >= 0 && presenter.started && songs[activeIndex].status !== 'playing') {
           songs[activeIndex].status = 'playing';

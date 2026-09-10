@@ -15,9 +15,11 @@ import bgUrl from './assets/final/Untertitel_BG_v2.png';
 
 /** Nachrichten vom Operator-Panel */
 interface Cmd {
-  cmd: 'song' | 'space' | 'prev' | 'nextsong' | 'restart' | 'jump' | 'reset' | 'auto' | 'micdev' | 'hello' | 'bpmreset' | 'bpmset';
+  cmd: 'song' | 'space' | 'prev' | 'nextsong' | 'restart' | 'jump' | 'reset' | 'auto' | 'micdev' | 'hello' | 'bpmreset' | 'bpmset' | 'notice';
   name?: string;
   content?: string;
+  /** notice: Durchsage-Text ('' = Durchsage aus) */
+  text?: string;
   index?: number;
   enabled?: boolean;
   id?: string;
@@ -97,6 +99,17 @@ const B1_X = VIEW_W / 2;
 const B1_MAX_W = 1080;
 const B1_CLIP_TOP = B1_ANCHOR_Y - 160;
 const B1_CLIP_H = 320;
+
+/** Notfall-Durchsage: freier Operator-Text (Suchmeldung, Warnung) an der
+ *  Stelle der Lyrics, in derselben Schrift und Größe — als LAUFBAND: die
+ *  ganze Meldung fährt in EINER Zeile von rechts nach links durchs Band
+ *  (bzw. durchs untere Drittel in BAYERN 1), kein Umbruch, kein Halten.
+ *  Nach dem Ende folgt nach einer Lücke sofort die nächste Runde. Absätze
+ *  aus dem Textfeld werden mit „+++“ aneinandergehängt. */
+/** Fahrgeschwindigkeit in px/s (bei 56 px Schrift ≈ 6 Zeichen/s) */
+const NOTICE_SPEED = 180;
+/** Lücke zwischen zwei Durchläufen in px */
+const NOTICE_GAP = 480;
 
 /** Vertikaler Durchlauf (abwärts): Zeilen fliegen von oben aus dem Bild
  *  rein und knapp unterhalb der Farbfläche raus (dort wischt die Clip-
@@ -182,6 +195,13 @@ export class Schmalaoke implements Game {
   private sprites: Sprite[] = [];
   /** BAYERN-1-Modus: kein HG-Asset, Lyrics im unteren Drittel */
   private b1 = false;
+  /** Notfall-Durchsage: Text ('' = aus), verdrängt die Lyrics-Anzeige */
+  private notice = '';
+  private noticeT0 = 0;
+  /** Laufband-Zeile + gemessene Breite (Cache, neu bei Textänderung) */
+  private noticeLine = '';
+  private noticeWidth = 0;
+  private noticeKey = '';
 
   setStationMode(mode: StationMode) {
     this.b1 = mode === 'b1';
@@ -231,6 +251,9 @@ export class Schmalaoke implements Game {
       case 'hello':
         this.sendInputList();
         this.sendPresenter();
+        break;
+      case 'notice':
+        this.setNotice(msg.text ?? '');
         break;
       case 'auto':
         this.setAutoMode(!!msg.enabled);
@@ -405,6 +428,7 @@ export class Schmalaoke implements Game {
             : 'kein Song geladen';
     return {
       Zustand: zustand,
+      ...(this.notice ? { Durchsage: 'LIVE — Lyrics ausgeblendet' } : {}),
       Titel: this.title || '—',
       Zeile: this.lyricsModeStarted ? `${Math.min(this.currentLine + 1, this.lines.length)} / ${this.lines.length}` : '—',
       Auto: !this.autoMode
@@ -454,6 +478,12 @@ export class Schmalaoke implements Game {
       this.drawBg(g);
     }
 
+    // Notfall-Durchsage hat Vorrang vor allem anderen
+    if (this.notice) {
+      this.drawNotice(g);
+      return;
+    }
+
     if (this.errorText) {
       this.drawLine(g, this.errorText, ROLES.current, 1);
       return;
@@ -472,17 +502,9 @@ export class Schmalaoke implements Game {
       return !(s.transient && t >= 1);
     });
 
-    // Lyrics innerhalb der Clip-Maske zeichnen: BAYERN 3 = Polygon-Kante
-    // der Farbfläche (pixelgenau), BAYERN 1 = Rechteck ums untere Drittel
+    // Lyrics innerhalb der Clip-Maske zeichnen
     g.save();
-    g.beginPath();
-    if (this.b1) {
-      g.rect(0, B1_CLIP_TOP, VIEW_W, B1_CLIP_H);
-    } else {
-      LYRIC_CLIP.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
-      g.closePath();
-    }
-    g.clip();
+    this.clipLyrics(g);
     for (const s of this.sprites) {
       const t = ease((this.time - s.t0) / ANIM_S);
       if ((this.time - s.t0) / ANIM_S < 0) continue; // Phase 2 wartet noch
@@ -542,6 +564,60 @@ export class Schmalaoke implements Game {
       x += widths[k];
     });
     g.restore();
+  }
+
+  /* ---------- Notfall-Durchsage ---------- */
+
+  private setNotice(text: string) {
+    const t = text.replace(/\r/g, '').trim();
+    if (t !== this.notice) this.noticeT0 = this.time;
+    this.notice = t;
+    this.sendPresenter();
+  }
+
+  private drawNotice(g: CanvasRenderingContext2D) {
+    g.save();
+    this.clipLyrics(g);
+    g.fillStyle = '#ffffff';
+    g.textAlign = 'left';
+    g.textBaseline = 'middle';
+    g.font = `700 ${LYRIC_SIZE}px 'TheSans', system-ui, sans-serif`;
+
+    // Laufband-Text: Absätze zu einer Zeile verbinden, Breite einmal messen
+    if (this.noticeKey !== this.notice) {
+      this.noticeKey = this.notice;
+      this.noticeLine = this.notice
+        .split('\n')
+        .map((l) => l.trim().replace(/\s+/g, ' '))
+        .filter(Boolean)
+        .join(' +++ ');
+      this.noticeWidth = g.measureText(this.noticeLine).width;
+    }
+    if (!this.noticeLine) {
+      g.restore();
+      return;
+    }
+
+    // Startet am rechten Bildrand, fährt nach links; Kopien im Abstand
+    // period, damit nach der Lücke nahtlos die nächste Runde folgt
+    const period = this.noticeWidth + NOTICE_GAP;
+    const offset = (Math.max(0, this.time - this.noticeT0) * NOTICE_SPEED) % period;
+    const y = this.b1 ? B1_ANCHOR_Y : ANCHOR_Y;
+    for (let x = VIEW_W - offset; x + this.noticeWidth > 0; x -= period) g.fillText(this.noticeLine, x, y);
+    g.restore();
+  }
+
+  /** Clip-Maske der Lyrics setzen: BAYERN 3 = Polygon-Kante des pinken
+   *  Bands (pixelgenau), BAYERN 1 = Rechteck ums untere Drittel */
+  private clipLyrics(g: CanvasRenderingContext2D) {
+    g.beginPath();
+    if (this.b1) {
+      g.rect(0, B1_CLIP_TOP, VIEW_W, B1_CLIP_H);
+    } else {
+      LYRIC_CLIP.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
+      g.closePath();
+    }
+    g.clip();
   }
 
   /* ---------- State-Machine (portiert aus main.js) ---------- */
@@ -733,6 +809,7 @@ export class Schmalaoke implements Game {
       autoArmed: this.isArmed(),
       autoSpaces: this.autoSpaces,
       refBpm: this.refBpm,
+      notice: this.notice,
     });
   }
 }

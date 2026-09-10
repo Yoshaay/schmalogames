@@ -567,6 +567,11 @@ function escapeHtml(s: string): string {
 // Die Tastendrücke fängt der Main-Prozess in BEIDEN Fenstern ab
 // (before-input-event) und schickt sie als 'hotkey'-Nachricht hierher.
 function fireHotkey(n: number) {
+  // Ziffern, die der Operator gerade in ein Eingabefeld tippt (BPM,
+  // Durchsage-Text), sind keine Hotkeys. Kommt der Druck aus dem
+  // Wall-Fenster, hat dieses Fenster keinen Fokus — dann feuert er.
+  const active = document.activeElement;
+  if (document.hasFocus() && active instanceof HTMLElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName)) return;
   const action = entryById(activeGameId)?.actions?.[n - 1];
   if (!action) {
     // Keine Aktion auf dieser Ziffer: ans Spiel-Panel durchreichen
