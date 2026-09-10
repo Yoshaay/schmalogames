@@ -172,15 +172,21 @@
       const frac = m[3];
       const ts = (Number(m[1]) * 60 + Number(m[2])) * 1000 + Math.round(Number(frac) * Math.pow(10, 3 - frac.length));
       // Führende Tags (in beliebiger Reihenfolge) abknabbern: <N|xxx> und {Name}
+      // — Formatierungs-Tags (<b> <i> <u>) bleiben im Text stehen
       let rest = m[4];
       let section = null;
       for (;;) {
         let t;
-        if ((t = rest.match(/^\s*<[^>]*>\s*/))) rest = rest.slice(t[0].length);
+        if ((t = rest.match(/^\s*<(\d*|x+)>\s*/i))) rest = rest.slice(t[0].length);
         else if ((t = rest.match(/^\s*\{([^}]*)\}\s*/))) { section = t[1].trim() || section; rest = rest.slice(t[0].length); }
         else break;
       }
-      lines.push({ idx, text: rest.trim(), section, ts });
+      // Operator-Kommentar (" // Notiz") abtrennen — wird beim Schreiben
+      // unverändert wieder angehängt, in der Vorschau nicht gezeigt
+      let comment = null;
+      const cm = rest.match(/(?:^|\s)\/\/\s*(.*)$/);
+      if (cm) { comment = cm[1].trim(); rest = rest.slice(0, cm.index); }
+      lines.push({ idx, text: rest.trim(), section, comment, ts });
     });
     return ref;
   }
@@ -276,7 +282,8 @@
       const ss = String(Math.floor((tsMs % 60000) / 1000)).padStart(2, '0');
       const cc = String(Math.round((tsMs % 1000) / 10) % 100).padStart(2, '0');
       const sec = ln.section ? `{${ln.section}}` : '';
-      out[ln.idx] = `[${mm}:${ss}.${cc}]<${n}>${sec}${ln.text}`;
+      const note = ln.comment ? ` // ${ln.comment}` : '';
+      out[ln.idx] = `[${mm}:${ss}.${cc}]<${n}>${sec}${ln.text}${note}`;
     });
     // [bpm:]-Tag setzen bzw. ersetzen (nach [ar:] oder [ti:], sonst oben)
     const tag = `[bpm:${bpm()}]`;
@@ -323,7 +330,8 @@
 
     const stage = $('stage');
     const esc = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-    const lineHtml = (ln) => (ln.section ? `<span class="sec">{${esc(ln.section)}}</span>` : '') + esc(ln.text || '···');
+    const plain = (s) => s.replace(/<\/?[biu]>/gi, '');
+    const lineHtml = (ln) => (ln.section ? `<span class="sec">{${esc(ln.section)}}</span>` : '') + esc(plain(ln.text) || '···');
     if (!ready) {
       stage.innerHTML = `<div class="idle">${lines.length ? 'BPM setzen, dann' : 'LRC laden, BPM setzen, dann'} mit <span class="kbd">Space</span> die erste Zeile starten.</div>`;
     } else if (done) {

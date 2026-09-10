@@ -1,5 +1,5 @@
 import { OperatorPanel, OperatorPanelApi } from '../../core/game';
-import { LRCParser } from './lrc-parser';
+import { LRCParser, parseMarkup, plainText } from './lrc-parser';
 
 /**
  * Rundown + Presenter-Ansicht — portiert aus SchmalKaraoke_ALPHA
@@ -15,6 +15,8 @@ interface Song {
   artist: string;
   lines: string[];
   sections: Array<string | null>;
+  /** Operator-Notizen (// Kommentare aus der LRC), nie auf der Wall */
+  comments: Array<string | null>;
   /** Referenztempo aus [bpm:]-Tag (0 = keins) */
   refBpm: number;
   validation: { level: 'ok' | 'warn' | 'error'; warnings: string[] };
@@ -111,10 +113,18 @@ const STYLE = `
   }
   .ka-lyric.current { color: #ffffff; border-left-color: var(--primary); background: rgba(var(--primary-rgb), 0.08); }
   .ka-lyric.armed { color: var(--live); border-left-color: var(--live); }
+  .ka-lyric b { color: #ffffff; }
   .ka-lyric .sec {
     font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.1em;
     color: var(--blue); margin-right: 8px; text-transform: uppercase;
   }
+  /* Operator-Notiz (// Kommentar in der LRC): eigene Zeile unter dem Text,
+     gelb wie ein Klebezettel — steht nur hier, nie auf der Wall */
+  .ka-lyric .note {
+    display: block; font-family: var(--font-mono); font-size: 10px;
+    color: #f2c94c; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .ka-lyric .note::before { content: '// '; opacity: 0.6; }
   .ka-meta { font-family: var(--font-mono); font-size: 11px; color: var(--ink-dim); }
   .ka-meta.mismatch { color: var(--live); font-weight: 700; }
   .ka-root button.ka-ref {
@@ -237,6 +247,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
       artist: p.metadata.ar || '',
       lines: ok ? [...p.lyricsLines] : [],
       sections: ok ? [...p.sections] : [],
+      comments: ok ? [...p.comments] : [],
       refBpm: ok ? p.refBpm : 0,
       validation: ok ? p.validate() : { level: 'error', warnings: ['Keine Lyrics gefunden'] },
       status,
@@ -609,7 +620,25 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
         sec.textContent = `{${song.sections[i]}}`;
         el.appendChild(sec);
       }
-      el.appendChild(document.createTextNode(line || '···'));
+      if (!plainText(line)) el.appendChild(document.createTextNode('···'));
+      // Formatierungs-Tags wie auf der Wall: <b> <i> <u> als Elemente
+      for (const seg of parseMarkup(line)) {
+        let node: Node = document.createTextNode(seg.text);
+        for (const tag of [seg.u && 'u', seg.i && 'i', seg.b && 'b']) {
+          if (!tag) continue;
+          const wrap = document.createElement(tag);
+          wrap.appendChild(node);
+          node = wrap;
+        }
+        el.appendChild(node);
+      }
+      if (song.comments[i]) {
+        const note = document.createElement('span');
+        note.className = 'note';
+        note.textContent = song.comments[i]!;
+        note.title = song.comments[i]!;
+        el.appendChild(note);
+      }
       // Bewusst KEIN Klick auf Zeilen: das sah aus wie "ausgewählt", sprang
       // aber nicht — Sprünge laufen nur über die Marken-Chips / Ziffern
       lyricsEl.appendChild(el);

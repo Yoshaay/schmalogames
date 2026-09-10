@@ -1,6 +1,6 @@
 import { Game, GameContext, StationMode, VIEW_W, VIEW_H } from '../../core/game';
 import { BeatEngine } from '../../core/beat';
-import { LRCParser } from './lrc-parser';
+import { LRCParser, parseMarkup, Segment } from './lrc-parser';
 import bgUrl from './assets/final/Untertitel_BG_v2.png';
 
 /**
@@ -65,6 +65,9 @@ const ANCHOR_Y = 310;
  *  ~200–1180, Mitte 690. LYRIC_MAX_W lässt links ~15 px Luft vor der
  *  schrägen Kante und rechts ~40 px zum Bildrand. */
 const LYRIC_SIZE = 56;
+/** Unterstreichung (<u>): Lage unter der Mittellinie und Dicke, in em */
+const UNDERLINE_Y = 0.4;
+const UNDERLINE_H = 0.06;
 const LYRIC_X = 690;
 const LYRIC_MAX_W = 940;
 
@@ -506,21 +509,38 @@ export class Schmalaoke implements Game {
 
   /** Zeile zeichnen — immer einzeilig, zentriert auf dem Anker. Zeilen
    *  breiter als LYRIC_MAX_W werden proportional kleiner skaliert statt
-   *  umzubrechen oder an der Maske zu clippen. */
+   *  umzubrechen oder an der Maske zu clippen. Formatierungs-Tags
+   *  (<b> <i> <u>) werden als Segmente mit eigenem Schnitt gesetzt: fett =
+   *  Black (900) statt Bold, kursiv = Italic, unterstrichen = Balken. */
   private drawLine(g: CanvasRenderingContext2D, text: string, state: RoleState, alpha: number) {
     if (!text || alpha <= 0.01) return;
+    const segs = parseMarkup(text);
+    if (!segs.length) return;
     g.save();
     g.globalAlpha = alpha;
     // Lyrics immer weiß — keine Grau-Abstufung, keine Farbanimation
     g.fillStyle = '#ffffff';
-    g.textAlign = 'center';
+    g.textAlign = 'left';
     g.textBaseline = 'middle';
-    g.font = `700 ${LYRIC_SIZE}px 'TheSans', system-ui, sans-serif`;
+    const fontFor = (s: Segment) => `${s.i ? 'italic ' : ''}${s.b ? 900 : 700} ${LYRIC_SIZE}px 'TheSans', system-ui, sans-serif`;
+    let total = 0;
+    const widths = segs.map((s) => {
+      g.font = fontFor(s);
+      const w = g.measureText(s.text).width;
+      total += w;
+      return w;
+    });
     const maxW = this.b1 ? B1_MAX_W : LYRIC_MAX_W;
-    const fit = Math.min(1, maxW / Math.max(1, g.measureText(text).width));
+    const fit = Math.min(1, maxW / Math.max(1, total));
     g.translate(this.b1 ? B1_X : LYRIC_X, (this.b1 ? B1_ANCHOR_Y : ANCHOR_Y) + state.y);
     g.scale(fit, fit);
-    g.fillText(text, 0, 0);
+    let x = -total / 2;
+    segs.forEach((s, k) => {
+      g.font = fontFor(s);
+      g.fillText(s.text, x, 0);
+      if (s.u) g.fillRect(x, LYRIC_SIZE * UNDERLINE_Y, widths[k], LYRIC_SIZE * UNDERLINE_H);
+      x += widths[k];
+    });
     g.restore();
   }
 

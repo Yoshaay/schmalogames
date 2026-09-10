@@ -65,8 +65,8 @@ Start über Systemeinstellungen → Datenschutz & Sicherheit → „Trotzdem
 
 Die BR-Hausschrift **TheSans** liegt lizenzbedingt **nicht** im Repo. Den
 Ordner `fonts/` mit den OTFs (`TheSansC5s-5_Plain`, `-6_SemiBold`, `-7_Bold`,
-`-8_ExtraBold`) ins Projektverzeichnis legen, dann bündelt der Build sie
-automatisch. Ohne den Ordner läuft alles mit Fallback-Font.
+`-7_BoldItalic`, `-8_ExtraBold`, `-9_Black`, `-9_BlackItalic`) ins
+Projektverzeichnis legen, dann bündelt der Build sie automatisch. Ohne den Ordner läuft alles mit Fallback-Font.
 
 ## Die Spiele
 
@@ -114,6 +114,17 @@ hochkante Sidebar:
 - **Presenter:** Leertaste blättert; Marken-Chip-Klick oder Ziffer armiert
   einen Sprung ({Name}-Marken aus der LRC), Leertaste löst ihn aus. Die
   Textzeilen selbst sind nur Anzeige, nicht klickbar.
+- **Operator-Kommentare:** Alles hinter ` //` auf einer Textzeile ist eine
+  Notiz, die nur im Rundown (gelb unter der Zeile) erscheint — nie auf der
+  Wall. Eine Zeile, die mit `//` beginnt, hängt sich als Notiz an die nächste
+  Textzeile. Praktisch für Pausenzeilen (`[01:15.81]<64> // Solo, 16 Takte`)
+  oder Einsatz-Hinweise (`// Achtung: Tempo zieht an`). Der LRC Tapper
+  reicht Kommentare unverändert durch.
+- **Formatierung:** `<b>fett</b>`, `<i>kursiv</i>`, `<u>unterstrichen</u>`
+  im Text, schachtelbar. Auf der Wall wird fett als TheSans Black (900)
+  statt Bold gesetzt, kursiv als Italic, unterstrichen als Balken; das
+  Rundown zeigt es entsprechend. Die Tags zählen nicht zur Zeilenlänge und
+  werden beim automatischen Teilen sauber geschlossen und wieder geöffnet.
 - **Auto-Advance:** Beat-Erkennung über wählbaren Audio-Eingang zählt Zeilen
   automatisch weiter (`<N>`-Tags = Beats pro Zeile; ein `[bpm:162]`-Tag im
   Kopf der LRC nennt das Tempo, auf das die Takte gebaut sind — das Panel

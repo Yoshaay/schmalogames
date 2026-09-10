@@ -31,7 +31,7 @@ cpSync('src/renderer/logo.png', 'dist/renderer/logo.png');
 // Der Ordner ist lizenzbedingt NICHT im Repo — ohne ihn greift der Fallback-Font.
 if (existsSync('fonts')) {
   mkdirSync('dist/renderer/fonts', { recursive: true });
-  for (const weight of ['5_Plain', '6_SemiBold', '7_Bold', '8_ExtraBold']) {
+  for (const weight of ['5_Plain', '6_SemiBold', '7_Bold', '7_BoldItalic', '8_ExtraBold', '9_Black', '9_BlackItalic']) {
     cpSync(`fonts/TheSansC5s-${weight}.otf`, `dist/renderer/fonts/TheSansC5s-${weight}.otf`);
   }
 } else {
