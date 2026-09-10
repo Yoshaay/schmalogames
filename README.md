@@ -87,15 +87,18 @@ tanzt im Takt der Musik.
   startet nichts, erst der Mikro-Button!).
 - **Beat-Erkennung:** Spectral-Flux → Autokorrelation → PLL. Übersteuerbar
   per **Tap-Tempo** (Button oder Taste T).
-- **Sync einpegeln:** Button „🔧 Sync-Debug“ in der Kopfzeile blendet auf der
+- **Sync einpegeln:** Button „Sync-Debug“ im Groove-Panel blendet auf der
   Wall einen Beat-Blitz + Metronom-Punkt ein. Sync-Offset-Regler schieben,
-  bis der Punkt oben exakt auf dem hörbaren Beat trifft.
-- **Auszeichnungen:** Vier togglebare Banner (Dreieck-Welle im CI, Konfetti),
-  dazu ein Speedburst über der Publikumscam-Fläche.
-- **Moves:** 15 prozedurale Moves, Wechsel alle 8 Beats. Alternativ steckt
-  eine komplette Mocap-Pipeline im Code (Mixamo-Clips werden zur Laufzeit auf
-  das Modell retargetet, BPM-Messung per Hüft-Autokorrelation) — Umschalter:
-  `USE_MOCAP_CLIPS` in `schmalogroove.ts`.
+  bis der Punkt exakt auf dem hörbaren Beat trifft.
+- **Auszeichnungen:** Vier Banner (Tanzgott, Groove-Legende, Tanzmaschine,
+  Disco-Fieber) über der Livebild-Fläche, dazu ein Speedburst über der
+  Publikumscam-Fläche — alles auf den Hotkeys 1–5.
+- **Moves:** Acht prozedurale Posen (ein neunter, der Rasenmäher, ist per
+  `disabled` aus der Rotation genommen), Wechsel taktgerecht etwa alle 30 s
+  (`MOVE_SECONDS`); im Panel lassen sich einzelne Posen zum Review anwählen.
+  Alternativ steckt eine komplette Mocap-Pipeline im Code (Mixamo-Clips werden
+  zur Laufzeit auf das Modell retargetet, BPM-Messung per
+  Hüft-Autokorrelation) — Umschalter: `USE_MOCAP_CLIPS` in `schmalogroove.ts`.
 
 ### Schmalaoke
 
@@ -125,17 +128,16 @@ hochkante Sidebar:
   statt Bold gesetzt, kursiv als Italic, unterstrichen als Balken; das
   Rundown zeigt es entsprechend. Die Tags zählen nicht zur Zeilenlänge und
   werden beim automatischen Teilen sauber geschlossen und wieder geöffnet.
-- **Notfall-Durchsage:** Button im Panel (BAYERN 3 und BAYERN 1) schaltet den
-  Modus an und öffnet ein Textfeld für Suchmeldungen, Warnhinweise o. ä.
-  Erst „Fertig“ schickt den Text live auf die Wall (⌘⏎ im Feld geht auch)
-  — an dieselbe Stelle wie die Lyrics (Band bzw. unteres Drittel), die
-  solange ausgeblendet sind. Der Text fährt als **Laufband** in einer Zeile
-  von rechts nach links durch (Schrift und Höhe wie die Lyrics, Absätze
-  werden mit `+++` verbunden), nach einer Lücke folgt die nächste Runde
-  (`NOTICE_SPEED`/`NOTICE_GAP` in `schmalaoke.ts`). Text ändern + erneut „Fertig“ ersetzt die laufende
-  Durchsage, Button erneut drücken nimmt sie von der Wall, die Lyrics laufen
-  dort weiter, wo sie standen. Der Entwurf bleibt im Textfeld erhalten. Beim
-  Tippen in ein Eingabefeld feuern Ziffern keine Hotkeys mehr.
+- **Notfall-Durchsage** (BAYERN 3 und BAYERN 1): Button im Panel schaltet
+  den Modus an und öffnet ein Textfeld für Suchmeldungen, Warnhinweise o. ä.
+  Erst **„Fertig“** (oder ⌘⏎ im Feld) schickt den Text live — an dieselbe
+  Stelle wie die Lyrics (Band bzw. unteres Drittel), die solange ausgeblendet
+  sind. Der Text fährt als **Laufband** in einer Zeile von rechts nach links
+  durch, Schrift und Höhe wie die Lyrics, Absätze werden mit `+++` verbunden,
+  nach einer Lücke folgt die nächste Runde (`NOTICE_SPEED`/`NOTICE_GAP` in
+  `schmalaoke.ts`). Text ändern und erneut „Fertig“ ersetzt die laufende
+  Durchsage; Button erneut drücken nimmt sie von der Wall, die Lyrics laufen
+  dort weiter, wo sie standen. Der Entwurf bleibt im Textfeld erhalten.
 - **Auto-Advance:** Beat-Erkennung über wählbaren Audio-Eingang zählt Zeilen
   automatisch weiter (`<N>`-Tags = Beats pro Zeile; ein `[bpm:162]`-Tag im
   Kopf der LRC nennt das Tempo, auf das die Takte gebaut sind — das Panel
@@ -170,6 +172,9 @@ Zwischenablage kopieren.
 
 ## Hotkeys (gelten in beiden Fenstern)
 
+Solange im Operator ein Eingabefeld fokussiert ist (BPM, Durchsage-Text),
+gehen Tasten dorthin und feuern keine Hotkeys.
+
 | Taste | Aktion |
 |---|---|
 | 1–9 | Aktionen des aktiven Spiels (Groove: Cheers + Burst; Schmalaoke: Sprungmarken) |
@@ -179,6 +184,7 @@ Zwischenablage kopieren.
 | R (oder Home) | Schmalaoke: Song-Neustart |
 | A | Schmalaoke: Auto-Advance an/aus |
 | T | Tap-Tempo (Schmalogroove) |
+| ⌘⏎ | Schmalaoke: Durchsage-Text live schicken (im Textfeld) |
 | F11 | Wall-Vollbild |
 | ⌘/Strg + D | Debug-Panel im Operator an/aus |
 
