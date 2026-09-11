@@ -161,6 +161,14 @@ async function renderDebug() {
   html += debugRow('Electron', `${info.app.electron} · Node ${info.app.node} · ${info.app.arch}`);
   html += debugRow('System', info.app.platform);
   html += debugRow('Läuft seit', `${Math.floor(info.app.uptime / 60)} min ${info.app.uptime % 60} s`);
+  // Vorschau-Watchdog: steht das Bild, verbindet er neu — hier sieht man, ob
+  // und wann das passiert ist (Hinweis auf Rechner-/Treiberprobleme)
+  const vidAge = lastVideoFrameAt ? Date.now() - lastVideoFrameAt : Infinity;
+  const vidState = vidAge < PREVIEW_STALL_MS ? 'läuft' : lastVideoFrameAt ? `steht seit ${Math.round(vidAge / 1000)} s` : 'kein Bild';
+  const reconnectTxt = previewReconnects
+    ? ` · ${previewReconnects}× neu verbunden (zuletzt ${previewLastReason}, vor ${Math.round((Date.now() - previewLastReconnectAt) / 1000)} s)`
+    : '';
+  html += debugRow('Vorschau', `${vidState}${reconnectTxt}`, cls(vidAge < PREVIEW_STALL_MS && previewReconnects === 0, vidAge < PREVIEW_STALL_MS));
   html += '<div class="hint">Werte aktualisieren sich jede Sekunde. NDI-Quelle im Ü-Wagen: Name oben, IP bei Bedarf manuell im NDI Access Manager eintragen.</div>';
   panel.innerHTML = html;
 }
@@ -199,7 +207,15 @@ async function acceptPreviewOffer(sdp: string) {
   const pc = new RTCPeerConnection();
   previewPC = pc;
   pc.ontrack = (e) => {
-    ($('preview') as HTMLVideoElement).srcObject = e.streams[0];
+    const video = $('preview') as HTMLVideoElement;
+    video.srcObject = e.streams[0];
+    video.play().catch(() => {});
+    watchVideoFrames(video);
+  };
+  // Verbindung weg (z.B. nach Schlafmodus): sofort neu aushandeln
+  pc.onconnectionstatechange = () => {
+    if (pc !== previewPC) return;
+    if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') requestPreview('Verbindung verloren');
   };
   pc.onicecandidate = (e) => {
     if (e.candidate) window.bus.send({ type: 'rtc-ice', candidate: e.candidate.toJSON() });
@@ -214,6 +230,58 @@ async function acceptPreviewOffer(sdp: string) {
   await pc.setLocalDescription(answer);
   window.bus.send({ type: 'rtc-answer', sdp: answer.sdp });
 }
+
+// ---------- Vorschau-Watchdog ----------
+// Beobachtet im Einsatz: auf manchen Rechnern bleibt das WebRTC-Vorschaubild
+// stehen, während Wall und NDI normal weiterlaufen. Kommen weiter
+// State-Nachrichten von der Wall (sie lebt), das Video liefert aber länger
+// als PREVIEW_STALL_MS keinen neuen Frame, wird die Vorschau-Verbindung neu
+// ausgehandelt — die Wall baut dann PeerConnection und Canvas-Stream neu auf.
+const PREVIEW_STALL_MS = 2000;
+/** Mindestabstand zwischen zwei Neuverbindungen (Aushandlung braucht Zeit) */
+const PREVIEW_RETRY_MS = 4000;
+let lastWallStateAt = 0;
+let lastVideoFrameAt = 0;
+let previewRequestedAt = 0;
+let previewReconnects = 0;
+let previewLastReason = '';
+let previewLastReconnectAt = 0;
+let watchedVideo: HTMLVideoElement | null = null;
+
+/** Vorschau (neu) anfordern — mit Grund = Neuverbindung nach Störung */
+function requestPreview(reason?: string) {
+  previewRequestedAt = Date.now();
+  if (reason) {
+    previewReconnects++;
+    previewLastReason = reason;
+    previewLastReconnectAt = Date.now();
+    console.warn(`[Vorschau] Neuverbindung #${previewReconnects}: ${reason}`);
+  }
+  window.bus.send({ type: 'preview-ready' });
+}
+
+/** Jeden gelieferten Video-Frame als Lebenszeichen der Vorschau zählen */
+function watchVideoFrames(video: HTMLVideoElement) {
+  lastVideoFrameAt = Date.now();
+  if (watchedVideo === video) return;
+  watchedVideo = video;
+  const tick = () => {
+    lastVideoFrameAt = Date.now();
+    video.requestVideoFrameCallback(tick);
+  };
+  video.requestVideoFrameCallback(tick);
+  // Pausiertes Video (Autoplay-Hänger) wieder anstoßen
+  video.addEventListener('pause', () => video.play().catch(() => {}));
+}
+
+setInterval(() => {
+  const now = Date.now();
+  const wallAlive = now - lastWallStateAt < 1500;
+  const stalled = now - lastVideoFrameAt > PREVIEW_STALL_MS;
+  if (wallAlive && stalled && now - previewRequestedAt > PREVIEW_RETRY_MS) {
+    requestPreview(lastVideoFrameAt ? 'Bild stand' : 'kein Bild');
+  }
+}, 1000);
 
 // ---------- Einstellungen / Aktionen ----------
 function entryById(id: string | null): GameEntry | null {
@@ -458,7 +526,7 @@ window.bus.onMessage((raw) => {
   if (anyMsg.type === 'wall-ready') {
     // Wall-Fenster (neu) gestartet — Vorschau-Verbindung anfordern
     // und den aktuellen Sender-Modus mitgeben (Rahmenfarbe)
-    window.bus.send({ type: 'preview-ready' });
+    requestPreview();
     window.bus.send({ type: 'mode', mode });
     return;
   }
@@ -504,6 +572,7 @@ window.bus.onMessage((raw) => {
 
   const msg = raw as StateMsg;
   if (msg.type !== 'state') return;
+  lastWallStateAt = Date.now();
 
   maskOn = msg.mask === true;
   const maskBtn = $('mask') as HTMLButtonElement;
@@ -595,4 +664,4 @@ window.addEventListener('dragover', (e) => e.preventDefault());
 window.addEventListener('drop', (e) => e.preventDefault());
 
 // Falls das Wall-Fenster schon läuft: Vorschau-Verbindung anfordern
-window.bus.send({ type: 'preview-ready' });
+requestPreview();

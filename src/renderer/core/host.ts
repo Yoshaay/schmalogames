@@ -76,6 +76,7 @@ export class GameHost {
   // Live-Vorschau: der Canvas wird per WebRTC als Videostream
   // ans Operator-Fenster gestreamt (Signaling über den Nachrichtenkanal)
   private previewPC: RTCPeerConnection | null = null;
+  private previewStream: MediaStream | null = null;
   private rtcPendingIce: RTCIceCandidateInit[] = [];
   private rtcRemoteSet = false;
 
@@ -190,6 +191,10 @@ export class GameHost {
   /** Baut die WebRTC-Verbindung zum Operator-Fenster (neu) auf */
   private async startPreviewStream() {
     this.previewPC?.close();
+    // Alten Canvas-Stream wirklich beenden — der Operator fordert bei
+    // stehendem Bild eine Neuverbindung an, dann soll auch die Aufnahme
+    // frisch starten statt am alten Track weiterzuhängen
+    this.previewStream?.getTracks().forEach((t) => t.stop());
     this.rtcPendingIce = [];
     this.rtcRemoteSet = false;
 
@@ -198,6 +203,7 @@ export class GameHost {
 
     // Das Anlieferungsbild als Video-Track
     const stream = this.out.captureStream(30);
+    this.previewStream = stream;
     for (const track of stream.getTracks()) pc.addTrack(track, stream);
 
     pc.onicecandidate = (e) => {
