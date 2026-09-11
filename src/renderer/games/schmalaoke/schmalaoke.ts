@@ -29,11 +29,6 @@ interface Cmd {
 /** Vorlauf: Zeile erscheint N Beats vor ihrem musikalischen Einsatz */
 const PRE_BEATS = 1;
 
-/** Ampel-Logik: Auto-Advance übernimmt erst ab dieser Beat-Konfidenz
- *  (gelb = lauscht, manuell fahren — grün = gelockt, Auto fährt).
- *  Die Engine-Konfidenz pendelt bei normalem Material um 0,3–0,6. */
-const LOCK_CONF = 0.3;
-
 /** So viele Leertasten braucht Auto-Advance nach dem Einschalten, bevor es
  *  selbst zählt: 1 = Songstart, 2 = bestätigter Einsatz auf dem Beat */
 const ARM_SPACES = 2;
@@ -379,9 +374,11 @@ export class Schmalaoke implements Game {
     return Math.abs(this.engine.bpm / this.refBpm - 1) > BPM_TOLERANCE;
   }
 
-  /** Ampel: erst wenn Tempo UND Konfidenz stehen, darf Auto fahren */
+  /** Ampel: grün, sobald die Engine eingerastet ist (oder das Tempo fest
+   *  eingetippt wurde) — die Uhr läuft dann durch, bis die Engine einen
+   *  echten Tempowechsel erkennt; gelb = sucht noch, manuell fahren */
   private isLocked(): boolean {
-    return this.engine.periodMs > 0 && this.engine.conf >= LOCK_CONF;
+    return this.engine.periodMs > 0 && (this.engine.manual || this.engine.locked);
   }
 
   /** Beat vom Audio-Grid: Zähler pro Zeile, bei <N> erreicht → weiterblättern */
@@ -391,6 +388,7 @@ export class Schmalaoke implements Game {
       kind: 'beat',
       bpm: this.engine.bpm,
       locked,
+      lockedFor: this.engine.lockedFor(performance.now()),
       manual: this.manualBpm > 0,
       armed: this.isArmed(),
       spaces: this.autoSpaces,

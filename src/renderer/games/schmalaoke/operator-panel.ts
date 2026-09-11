@@ -848,9 +848,10 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
         lyricsEl.querySelector('.ka-lyric.current')?.scrollIntoView({ block: 'nearest' });
       }
       if (msg.kind === 'beat') {
-        const { bpm, locked, manual, armed, spaces, ref } = payload as {
+        const { bpm, locked, lockedFor, manual, armed, spaces, ref } = payload as {
           bpm: number;
           locked: boolean;
+          lockedFor?: number;
           manual?: boolean;
           armed?: boolean;
           spaces?: number;
@@ -867,7 +868,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
           : !armed
             ? `${bpmTxt ? bpmTxt + ' · ' : ''}wartet auf ${left}× Leertaste`
             : locked
-              ? `${bpmTxt} · Auto fährt`
+              ? `${bpmTxt} · Auto fährt${lockedFor ? ` · gelockt seit ${Math.round(lockedFor)} s` : ''}`
               : bpm > 0
                 ? `${bpmTxt} · lockt ein …`
                 : 'lauscht …';

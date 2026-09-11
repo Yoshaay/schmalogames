@@ -85,8 +85,15 @@ tanzt im Takt der Musik.
 - **Audio rein:** Track laden (MP3 & Co., läuft geloopt) **oder** Live-Signal
   über einen wählbaren Audio-Eingang (Dropdown neben „Mikro“ — Auswahl
   startet nichts, erst der Mikro-Button!).
-- **Beat-Erkennung:** Spectral-Flux → Autokorrelation → PLL. Übersteuerbar
-  per **Tap-Tempo** (Button oder Taste T).
+- **Beat-Erkennung:** Spectral-Flux → Autokorrelation → PLL, mit zwei
+  Zuständen (`core/beat.ts`): **Suchen** lernt schnell; liegen drei
+  Schätzungen in Folge innerhalb 2 % (oder sechs innerhalb 4 %), rastet sie
+  ein. **Gelockt** steht das Tempo bis auf minimale, gedeckelte Drift, die
+  Phase gleitet nur noch sanft nach (Totzone 15 ms, max. 20 ms je Schritt),
+  halbes/doppeltes Tempo gilt als dieselbe Musik, und die Uhr läuft auch bei
+  unsicherem Signal weiter. Erst fünf klar abweichende Schätzungen in Folge
+  (~2 s, echter Tempowechsel) lösen den Lock. Panel zeigt „gelockt seit N s“
+  bzw. „sucht“. Übersteuerbar per **Tap-Tempo** (Button oder Taste T).
 - **Sync einpegeln:** Button „Sync-Debug“ im Groove-Panel blendet auf der
   Wall einen Beat-Blitz + Metronom-Punkt ein. Sync-Offset-Regler schieben,
   bis der Punkt exakt auf dem hörbaren Beat trifft.
@@ -146,8 +153,9 @@ hochkante Sidebar:
   Kopf der LRC nennt das Tempo, auf das die Takte gebaut sind — das Panel
   zeigt es als Chip, Klick übernimmt es als festen Wert, und liegt die
   Erkennung mehr als 8 % daneben, warnt die BPM-Anzeige in Magenta „passt
-  NICHT“); Space bleibt als
-  Korrektur. Auto fährt nie von selbst los: nach Einschalten, BPM-Änderung
+  NICHT“); Space bleibt als Korrektur. Die Ampel wird grün, sobald die
+  Beat-Engine eingerastet ist (oder ein fester BPM-Wert steht), und bleibt
+  es, bis die Engine einen echten Tempowechsel erkennt. Auto fährt nie von selbst los: nach Einschalten, BPM-Änderung
   oder Songwechsel braucht es **zwei Leertasten** (Songstart + bestätigter
   Einsatz auf dem Beat), erst dann zählt es; bei festem BPM wird das Grid
   auf diesen zweiten Druck ausgerichtet. Beat-Punkt + BPM im Panel. Alternativ **BPM fest eintippen**

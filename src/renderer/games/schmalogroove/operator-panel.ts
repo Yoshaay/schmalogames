@@ -11,6 +11,8 @@ interface Tick {
   dur: number;
   bpm: number;
   conf: number;
+  locked?: boolean;
+  lockedFor?: number;
   manual: boolean;
   move: string;
   moves: string[];
@@ -242,7 +244,11 @@ export function buildGroovePanel(container: HTMLElement, api: OperatorPanelApi):
     if (t.bpm > 0) {
       bpmNum.textContent = String(Math.round(t.bpm));
       bpmNum.classList.remove('searching');
-      bpmSub.textContent = t.manual ? 'manuell' : 'locked · ' + Math.round(t.conf * 100) + '%';
+      bpmSub.textContent = t.manual
+        ? 'manuell'
+        : t.locked
+          ? `gelockt seit ${Math.round(t.lockedFor ?? 0)} s`
+          : 'sucht · ' + Math.round(t.conf * 100) + '%';
     } else {
       bpmNum.textContent = '—';
       bpmNum.classList.add('searching');

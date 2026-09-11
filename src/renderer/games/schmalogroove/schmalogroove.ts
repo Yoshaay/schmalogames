@@ -659,7 +659,13 @@ export class Schmalogroove implements Game {
     g.textBaseline = 'alphabetic';
     g.lineJoin = 'round';
     const bpm = this.engine.bpm > 0 ? Math.round(this.engine.bpm) : '—';
-    const mode = !hasGrid ? 'WARTE AUF BEAT' : this.engine.manual ? 'TAP' : `AUTO ${Math.round(this.engine.conf * 100)}%`;
+    const mode = !hasGrid
+      ? 'WARTE AUF BEAT'
+      : this.engine.manual
+        ? 'TAP'
+        : this.engine.locked
+          ? `LOCK ${Math.round(this.engine.lockedFor(performance.now()))} s`
+          : `SUCHT ${Math.round(this.engine.conf * 100)}%`;
     const info = `${bpm} BPM · Offset ${Math.round(this.engine.offsetMs)} ms · ${mode}`;
     g.strokeStyle = '#1a1a22';
     g.lineWidth = 8;
@@ -964,6 +970,8 @@ export class Schmalogroove implements Game {
       dur: this.audioBuffer?.duration ?? 0,
       bpm: this.engine.bpm,
       conf: this.engine.conf,
+      locked: this.engine.locked,
+      lockedFor: this.engine.lockedFor(performance.now()),
       manual: this.engine.manual,
       move: this.dancer.moveName,
       moves: MOVE_NAMES,

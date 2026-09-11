@@ -10,10 +10,48 @@
  *    Raster die Onset-Kurve am besten trifft → sanfter PLL-Nudge statt
  *    hartem Resync. Beats feuern dann vom Grid, nicht von einzelnen
  *    (verrauschten) Onsets.
+ *
+ * Lock-Zustände (seit 2026-09-11, Live-Input schwankte zu sichtbar):
+ * - SUCHEN: lernt schnell wie bisher. Liegen LOCK_STREAK Schätzungen in
+ *   Folge innerhalb LOCK_TOL beieinander, rastet die Engine ein.
+ * - GELOCKT: das Tempo ist eingefroren bis auf minimale Drift (gedeckelt
+ *   auf DRIFT_MAX_REL pro Analyse), die Phase wird nur noch sanft
+ *   nachgeführt (Totzone + Deckel pro Schritt, kleiner Gain). Halbes/
+ *   doppeltes Tempo gilt als dieselbe Musik (Oktav-Schutz). Die Uhr
+ *   läuft dabei IMMER weiter — sinkt die Konfidenz, wird nur weniger
+ *   korrigiert, nie gestoppt. Neu gelernt wird erst, wenn RELEARN_STREAK
+ *   klare Schätzungen in Folge um mehr als RELEARN_TOL abweichen (echter
+ *   Tempowechsel / neuer Song) → zurück auf SUCHEN, Grid neu.
  */
 
 const FS = 100; // Abtastrate der Onset-Kurve für die Analyse (Hz)
 const WIN_MS = 6000; // Analysefenster
+
+/** So viele klare Schätzungen in Folge (je 400 ms) müssen innerhalb von
+ *  LOCK_TOL beieinanderliegen, bevor die Engine einrastet */
+const LOCK_STREAK = 3;
+const LOCK_TOL = 0.02;
+/** Weicher Lock für unruhiges Material: reicht die enge Toleranz nie,
+ *  rastet sie auch ein, wenn LOCK_STREAK_SOFT Schätzungen in Folge
+ *  innerhalb von LOCK_TOL_SOFT liegen (~2,4 s) — sonst bliebe sie ewig
+ *  im Suchen (= altes Verhalten) */
+const LOCK_STREAK_SOFT = 6;
+const LOCK_TOL_SOFT = 0.04;
+/** Gelockt: Schätzungen bis hierhin gelten als Drift und werden minimal
+ *  eingemischt (DRIFT_GAIN), maximal DRIFT_MAX_REL Tempoänderung je Analyse */
+const RELEARN_TOL = 0.08;
+const DRIFT_GAIN = 0.05;
+const DRIFT_MAX_REL = 0.003;
+/** So viele klare, abweichende Schätzungen in Folge (~2 s) lösen den Lock */
+const RELEARN_STREAK = 5;
+/** Phasenkorrektur gelockt: Fehler unter der Totzone werden ignoriert, pro
+ *  Analyse wird höchstens PHASE_MAX_STEP_MS geschoben, mit kleinem Gain */
+const PHASE_GAIN_SEARCH = 0.4;
+const PHASE_GAIN_LOCKED = 0.12;
+const PHASE_DEADBAND_MS = 15;
+const PHASE_MAX_STEP_MS = 20;
+/** Mindest-Konfidenz, die ein gelockter Zustand nach außen meldet */
+const LOCKED_MIN_CONF = 0.6;
 
 export class BeatEngine {
   bpm = 0;
@@ -28,6 +66,10 @@ export class BeatEngine {
   energy = 0;
   /** Tap-Override aktiv: Auto-Erkennung pausiert */
   manual = false;
+  /** Eingerastet: Tempo steht, nur noch Drift/Phase werden nachgeführt */
+  locked = false;
+  /** Zeitpunkt des Einrastens (Analyse-Uhr, ms) — 0 = nicht gelockt */
+  lockedAt = 0;
   /** Sync-Offset: verzögert die VISUALS gegen die Analyse (ms) */
   offsetMs = 0;
   /** Regler-Rohwert 110–180 → Onset-Gate im Fallback vor dem Tempo-Lock */
@@ -45,6 +87,11 @@ export class BeatEngine {
   private pendingOnsets: number[] = [];
   private taps: number[] = [];
   private prevFreq: Uint8Array | null = null;
+  /** Suchen: Zahl aufeinanderfolgender Schätzungen nah am aktuellen Tempo */
+  private lockStreak = 0;
+  private lockStreakSoft = 0;
+  /** Gelockt: Zahl aufeinanderfolgender klar abweichender Schätzungen */
+  private relearnStreak = 0;
 
   reset() {
     this.fluxT.length = 0;
@@ -64,6 +111,16 @@ export class BeatEngine {
     this.manual = false;
     this.taps.length = 0;
     this.prevFreq?.fill(0);
+    this.locked = false;
+    this.lockedAt = 0;
+    this.lockStreak = 0;
+    this.lockStreakSoft = 0;
+    this.relearnStreak = 0;
+  }
+
+  /** Sekunden seit dem Einrasten (0 = nicht gelockt) */
+  lockedFor(nowMs: number): number {
+    return this.locked && this.lockedAt ? Math.max(0, (nowMs - this.lockedAt) / 1000) : 0;
   }
 
   /** Seek: Tempo behalten, Beat-Grid neu ausrichten lassen */
@@ -156,6 +213,11 @@ export class BeatEngine {
     mean /= this.taps.length - 1;
 
     this.manual = true;
+    this.locked = false;
+    this.lockedAt = 0;
+    this.lockStreak = 0;
+    this.lockStreakSoft = 0;
+    this.relearnStreak = 0;
     this.bpm = 60000 / mean;
     this.periodMs = mean;
     this.conf = 1;
@@ -171,6 +233,11 @@ export class BeatEngine {
   setBpm(bpm: number, nowMs: number) {
     this.manual = true;
     this.taps.length = 0;
+    this.locked = false;
+    this.lockedAt = 0;
+    this.lockStreak = 0;
+    this.lockStreakSoft = 0;
+    this.relearnStreak = 0;
     this.bpm = bpm;
     this.periodMs = 60000 / bpm;
     this.conf = 1;
@@ -268,24 +335,80 @@ export class BeatEngine {
     }
     const newBpm = (60 * FS) / L;
 
-    // Update nur bei klarem Peak; nah am aktuellen Tempo → glätten,
-    // weit weg → nur bei sehr hoher Konfidenz springen (echter Tempowechsel)
-    if (prominence > 1.35) {
-      if (this.bpm && Math.abs(newBpm - this.bpm) / this.bpm < 0.06) {
-        this.bpm = this.bpm * 0.7 + newBpm * 0.3;
-      } else if (!this.bpm || prominence > 1.9) {
-        this.bpm = newBpm;
-        this.nextBeatAt = 0; // Grid neu ausrichten
+    // Kein klarer Peak → keine Information, nichts anfassen (gelockt läuft
+    // die Uhr einfach weiter)
+    if (prominence <= 1.35) return;
+    const quality = Math.min(1, (prominence - 1) / 1.5);
+
+    if (this.locked) {
+      // --- GELOCKT: Tempo steht, nur Drift + Phase ---
+      // Oktav-Schutz: halbes/doppeltes Tempo ist dieselbe Musik
+      let est = newBpm;
+      if (Math.abs(est / this.bpm - 2) < 0.16) est /= 2;
+      else if (Math.abs(est / this.bpm - 0.5) < 0.04) est *= 2;
+      const rel = Math.abs(est - this.bpm) / this.bpm;
+
+      if (rel < RELEARN_TOL) {
+        this.relearnStreak = 0;
+        // minimale Drift, hart gedeckelt — das BPM zittert nicht mehr
+        const maxStep = this.bpm * DRIFT_MAX_REL;
+        this.bpm += Math.max(-maxStep, Math.min(maxStep, (est - this.bpm) * DRIFT_GAIN));
+        this.periodMs = 60000 / this.bpm;
+        this.conf = Math.max(LOCKED_MIN_CONF, this.conf * 0.8 + quality * 0.2);
+        this.alignPhase(nowMs, det, t0, PHASE_GAIN_LOCKED, PHASE_DEADBAND_MS, PHASE_MAX_STEP_MS);
       } else {
-        return; // widersprüchlich & unsicher → behalten
+        // Klar abweichend: erst nach RELEARN_STREAK in Folge glauben — dann
+        // ist es ein echter Tempowechsel (oder neuer Song), zurück auf SUCHEN
+        this.relearnStreak++;
+        if (this.relearnStreak >= RELEARN_STREAK) {
+          this.locked = false;
+          this.lockedAt = 0;
+          this.lockStreak = 0;
+          this.relearnStreak = 0;
+          this.bpm = newBpm;
+          this.periodMs = 60000 / this.bpm;
+          this.conf = quality;
+          this.nextBeatAt = 0; // Grid neu ausrichten
+          this.alignPhase(nowMs, det, t0, PHASE_GAIN_SEARCH, 0, Infinity);
+        }
+        // sonst: Tempo und Phase unverändert behalten
       }
-      this.periodMs = 60000 / this.bpm;
-      this.conf = Math.max(this.conf * 0.6, Math.min(1, (prominence - 1) / 1.5));
-      this.alignPhase(nowMs, det, t0);
+      return;
+    }
+
+    // --- SUCHEN: schnell lernen wie bisher ---
+    // nah am aktuellen Tempo → glätten, weit weg → nur bei sehr hoher
+    // Konfidenz springen (echter Tempowechsel)
+    if (this.bpm && Math.abs(newBpm - this.bpm) / this.bpm < 0.06) {
+      const rel = Math.abs(newBpm - this.bpm) / this.bpm;
+      this.lockStreak = rel < LOCK_TOL ? this.lockStreak + 1 : 0;
+      this.lockStreakSoft = rel < LOCK_TOL_SOFT ? this.lockStreakSoft + 1 : 0;
+      this.bpm = this.bpm * 0.7 + newBpm * 0.3;
+    } else if (!this.bpm || prominence > 1.9) {
+      this.bpm = newBpm;
+      this.lockStreak = 0;
+      this.lockStreakSoft = 0;
+      this.nextBeatAt = 0; // Grid neu ausrichten
+    } else {
+      return; // widersprüchlich & unsicher → behalten
+    }
+    this.periodMs = 60000 / this.bpm;
+    this.conf = Math.max(this.conf * 0.6, quality);
+    this.alignPhase(nowMs, det, t0, PHASE_GAIN_SEARCH, 0, Infinity);
+
+    if (this.lockStreak >= LOCK_STREAK || this.lockStreakSoft >= LOCK_STREAK_SOFT) {
+      // Stabil genug: einrasten
+      this.locked = true;
+      this.lockedAt = nowMs;
+      this.relearnStreak = 0;
+      this.conf = Math.max(this.conf, LOCKED_MIN_CONF);
     }
   }
 
-  private alignPhase(nowMs: number, det: Float32Array, t0: number) {
+  /** Phase des Beat-Rasters an die Onset-Kurve heranführen. gain = Anteil
+   *  des Fehlers pro Aufruf, deadbandMs = Fehler darunter werden ignoriert,
+   *  maxStepMs = Deckel pro Aufruf (gelockt: unmerkliches Gleiten) */
+  private alignPhase(nowMs: number, det: Float32Array, t0: number, gain: number, deadbandMs: number, maxStepMs: number) {
     const T = this.periodMs;
     const steps = 24;
     let bestOff = 0;
@@ -315,6 +438,8 @@ export class BeatEngine {
     // (+1,5T dann −0,5T — das Pärchen muss zusammenpassen, sonst landet
     // der Fixpunkt der Regelung auf dem OFF-Beat!)
     const err = ((((target - this.nextBeatAt) % T) + 1.5 * T) % T) - 0.5 * T;
-    this.nextBeatAt += err * 0.4;
+    if (Math.abs(err) < deadbandMs) return;
+    const step = Math.max(-maxStepMs, Math.min(maxStepMs, err * gain));
+    this.nextBeatAt += step;
   }
 }
