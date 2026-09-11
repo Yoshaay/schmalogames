@@ -91,10 +91,11 @@ const LYRIC_CLIP: Array<[number, number]> = [
 
 /** BAYERN-1-Layout: kein HG-Asset (nur Alpha), die Zeile steht horizontal
  *  zentriert im unteren Bilddrittel — rechnerische Mitte wäre 1600, auf
- *  Wunsch (2026-09-11) 15 px höher. Statt des Band-Polygons wischt ein
+ *  Wunsch (2026-09-11) 15 px höher gemessen auf dem 640×1024-Ausgangsbild,
+ *  das sind 28 px in View-Koordinaten. Statt des Band-Polygons wischt ein
  *  Rechteck um den Anker die ein- und ausfliegenden Zeilen weg — schmaler
  *  als der Rollen-Hub (±320), damit Exits sauber aus der Maske laufen. */
-const B1_ANCHOR_Y = 1585;
+const B1_ANCHOR_Y = 1572;
 const B1_X = VIEW_W / 2;
 const B1_MAX_W = 1080;
 const B1_CLIP_TOP = B1_ANCHOR_Y - 160;
