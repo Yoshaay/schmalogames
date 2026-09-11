@@ -132,8 +132,9 @@ hochkante Sidebar:
   den Modus an und öffnet ein Textfeld für Suchmeldungen, Warnhinweise o. ä.
   Erst **„Fertig“** (oder ⌘⏎ im Feld) schickt den Text live; die Lyrics sind
   solange ausgeblendet. Er läuft in beiden Modi oben auf der Höhe des
-  B3-Bands auf einem vollbreiten Balken: BAYERN 3 in Reinrot `#ff0000` über
-  dem pinken Band, BAYERN 1 in `#e24f36` auf dem Livebild. Der Text fährt als
+  B3-Bands auf einem vollbreiten Balken auf reinem Alpha, das Band-Asset
+  ist solange ausgeblendet: BAYERN 3 in Reinrot `#ff0000`, BAYERN 1 in
+  `#e24f36`. Der Text fährt als
   **Laufband** in einer Zeile von rechts nach links durch, Schrift wie die
   Lyrics, Absätze werden mit `+++` verbunden,
   nach einer Lücke folgt die nächste Runde (`NOTICE_SPEED`/`NOTICE_GAP` in

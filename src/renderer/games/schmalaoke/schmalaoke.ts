@@ -112,9 +112,9 @@ const NOTICE_SPEED = 180;
 /** Lücke zwischen zwei Durchläufen in px */
 const NOTICE_GAP = 480;
 /** Die Durchsage läuft in beiden Modi oben auf der Höhe des B3-Bands
- *  (ANCHOR_Y) auf einem vollbreiten Balken: BAYERN 3 in Reinrot über dem
- *  pinken Band, BAYERN 1 in Warnrot auf dem Livebild (dort gibt es sonst
- *  keine Farbfläche, weißer Text wäre nicht lesbar). */
+ *  (ANCHOR_Y) auf einem vollbreiten Balken auf reinem Alpha — das Band-
+ *  Asset ist solange ausgeblendet: BAYERN 3 in Reinrot, BAYERN 1 in
+ *  Warnrot. */
 const NOTICE_BAR_B3 = '#ff0000';
 const NOTICE_BAR_B1 = '#e24f36';
 const NOTICE_BAR_H = 120;
@@ -482,7 +482,9 @@ export class Schmalaoke implements Game {
     // echt transparent (Alpha), damit im Ü-Wagen ein Livefeed dahinter
     // gelegt werden kann. Auf der Wall wirkt es weiter schwarz (Fenster-
     // Hintergrund); der Host cleart den Canvas jeden Frame.
-    if (!this.b1 && this.bg.complete && this.bg.naturalWidth) {
+    // Während einer Notfall-Durchsage bleibt auch in BAYERN 3 das Band-
+    // Asset weg: nur der rote Balken auf Alpha, kein Pink/Grün darunter
+    if (!this.b1 && !this.notice && this.bg.complete && this.bg.naturalWidth) {
       this.drawBg(g);
     }
 
