@@ -111,6 +111,12 @@ const B1_CLIP_H = 320;
 const NOTICE_SPEED = 180;
 /** Lücke zwischen zwei Durchläufen in px */
 const NOTICE_GAP = 480;
+/** BAYERN 1: die Durchsage läuft NICHT bei den B1-Lyrics im unteren
+ *  Drittel, sondern oben auf der Höhe des B3-Bands (ANCHOR_Y), auf einem
+ *  vollbreiten Balken in Warnrot — B1 hat sonst keine Farbfläche, auf
+ *  dem Livebild wäre weißer Text nicht lesbar. */
+const B1_NOTICE_BAR = '#e24f36';
+const B1_NOTICE_BAR_H = 120;
 
 /** Vertikaler Durchlauf (abwärts): Zeilen fliegen von oben aus dem Bild
  *  rein und knapp unterhalb der Farbfläche raus (dort wischt die Clip-
@@ -578,7 +584,17 @@ export class Schmalaoke implements Game {
 
   private drawNotice(g: CanvasRenderingContext2D) {
     g.save();
-    this.clipLyrics(g);
+    if (this.b1) {
+      // Balken zeichnen, Laufband darauf clippen
+      const top = ANCHOR_Y - B1_NOTICE_BAR_H / 2;
+      g.fillStyle = B1_NOTICE_BAR;
+      g.fillRect(0, top, VIEW_W, B1_NOTICE_BAR_H);
+      g.beginPath();
+      g.rect(0, top, VIEW_W, B1_NOTICE_BAR_H);
+      g.clip();
+    } else {
+      this.clipLyrics(g);
+    }
     g.fillStyle = '#ffffff';
     g.textAlign = 'left';
     g.textBaseline = 'middle';
@@ -603,7 +619,8 @@ export class Schmalaoke implements Game {
     // period, damit nach der Lücke nahtlos die nächste Runde folgt
     const period = this.noticeWidth + NOTICE_GAP;
     const offset = (Math.max(0, this.time - this.noticeT0) * NOTICE_SPEED) % period;
-    const y = this.b1 ? B1_ANCHOR_Y : ANCHOR_Y;
+    // In beiden Modi auf B3-Bandhöhe (B1: auf dem Balken)
+    const y = ANCHOR_Y;
     for (let x = VIEW_W - offset; x + this.noticeWidth > 0; x -= period) g.fillText(this.noticeLine, x, y);
     g.restore();
   }

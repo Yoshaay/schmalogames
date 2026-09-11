@@ -130,10 +130,12 @@ hochkante Sidebar:
   werden beim automatischen Teilen sauber geschlossen und wieder geöffnet.
 - **Notfall-Durchsage** (BAYERN 3 und BAYERN 1): Button im Panel schaltet
   den Modus an und öffnet ein Textfeld für Suchmeldungen, Warnhinweise o. ä.
-  Erst **„Fertig“** (oder ⌘⏎ im Feld) schickt den Text live — an dieselbe
-  Stelle wie die Lyrics (Band bzw. unteres Drittel), die solange ausgeblendet
-  sind. Der Text fährt als **Laufband** in einer Zeile von rechts nach links
-  durch, Schrift und Höhe wie die Lyrics, Absätze werden mit `+++` verbunden,
+  Erst **„Fertig“** (oder ⌘⏎ im Feld) schickt den Text live; die Lyrics sind
+  solange ausgeblendet. In BAYERN 3 läuft er im pinken Band, in BAYERN 1 auf
+  derselben Höhe auf einem vollbreiten Balken in Warnrot `#e24f36` (die
+  B1-Lyrics im unteren Drittel haben keine Farbfläche). Der Text fährt als
+  **Laufband** in einer Zeile von rechts nach links durch, Schrift wie die
+  Lyrics, Absätze werden mit `+++` verbunden,
   nach einer Lücke folgt die nächste Runde (`NOTICE_SPEED`/`NOTICE_GAP` in
   `schmalaoke.ts`). Text ändern und erneut „Fertig“ ersetzt die laufende
   Durchsage; Button erneut drücken nimmt sie von der Wall, die Lyrics laufen
