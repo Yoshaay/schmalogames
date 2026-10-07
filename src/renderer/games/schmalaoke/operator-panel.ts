@@ -117,8 +117,8 @@ const STYLE = `
     border: 1px solid var(--primary); border-radius: 3px; padding: 2px 6px; outline: none;
   }
   .ka-song .warn { font-size: 11px; }
-  /* Sortier-/Lösch-Buttons erst bei Hover — der Name bekommt die Breite
-     (Umsortieren geht ohnehin auch per Drag & Drop). Absolut über dem
+  /* Umbenennen-/Lösch-Buttons erst bei Hover — der Name bekommt die
+     Breite (Umsortieren läuft nur per Drag & Drop). Absolut über dem
      rechten Zeilenende, damit die Zeile beim Hover NICHT höher wird. */
   .ka-song { position: relative; }
   .ka-song .ops {
@@ -619,8 +619,6 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
       ops.className = 'ops';
       for (const [label, fn] of [
         ['✎', () => startRename(i)],
-        ['↑', () => moveSong(i, -1)],
-        ['↓', () => moveSong(i, 1)],
         ['✕', () => removeSong(i)],
       ] as Array<[string, () => void]>) {
         const btn = document.createElement('button');
@@ -639,15 +637,6 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
       };
       songsEl.appendChild(row);
     });
-  }
-
-  function moveSong(i: number, delta: number) {
-    const j = i + delta;
-    if (j < 0 || j >= songs.length) return;
-    [songs[i], songs[j]] = [songs[j], songs[i]];
-    if (activeIndex === i) activeIndex = j;
-    else if (activeIndex === j) activeIndex = i;
-    renderSongs();
   }
 
   function removeSong(i: number) {
