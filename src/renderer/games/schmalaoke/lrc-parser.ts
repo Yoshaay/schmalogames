@@ -35,6 +35,11 @@ export interface LrcValidation {
  *  werden auf die Hälften verteilt, Sprungmarken bleiben an der ersten. */
 export const MAX_LINE_CHARS = 36;
 
+/** Mitsingkonzert: die Wall bricht eine Zeile selbst auf bis zu zwei
+ *  Reihen um (bei 112 px ≈ 28 Zeichen pro Reihe) — geteilt wird erst, was
+ *  auch zweireihig nicht mehr in voller Größe passt. */
+export const MK_MAX_LINE_CHARS = 56;
+
 export class LRCParser {
   lyricsLines: string[] = [];
   timestamps: number[] = [];
@@ -52,7 +57,15 @@ export class LRCParser {
    *  Erkennung — liegt die weit daneben, kann Auto-Advance nicht passen. */
   refBpm = 0;
 
-  parseContent(content: string): boolean {
+  /** Teilungsgrenze des letzten Parse-Laufs (für die Validierung) */
+  maxLineChars = MAX_LINE_CHARS;
+
+  /** maxLineChars: ab dieser Länge werden Zeilen geteilt. Operator-Panel
+   *  und Wall MÜSSEN denselben Wert nehmen, sonst laufen Zeilennummern
+   *  (Rundown, Sprungmarken) auseinander — das Panel schickt ihn deshalb
+   *  mit jedem Song an die Wall. */
+  parseContent(content: string, maxLineChars = MAX_LINE_CHARS): boolean {
+    this.maxLineChars = maxLineChars;
     this.lyricsLines = [];
     this.timestamps = [];
     this.beatCounts = [];
@@ -164,7 +177,7 @@ export class LRCParser {
     this.splitCount = 0;
 
     for (let i = 0; i < this.lyricsLines.length; i++) {
-      const parts = splitLine(this.lyricsLines[i]);
+      const parts = splitLine(this.lyricsLines[i], this.maxLineChars);
       if (parts.length > 1) this.splitCount++;
       // Beats gleichmäßig verteilen, Rest von vorn — nie 0 (wäre ein Fehler)
       const total = this.beatCounts[i];
@@ -238,7 +251,7 @@ export class LRCParser {
     }
 
     if (this.splitCount > 0) {
-      warnings.push(`${this.splitCount} lange Zeile${this.splitCount > 1 ? 'n' : ''} automatisch geteilt (ab ${MAX_LINE_CHARS} Zeichen)`);
+      warnings.push(`${this.splitCount} lange Zeile${this.splitCount > 1 ? 'n' : ''} automatisch geteilt (ab ${this.maxLineChars} Zeichen)`);
     }
 
     let level: LrcValidation['level'] = 'ok';

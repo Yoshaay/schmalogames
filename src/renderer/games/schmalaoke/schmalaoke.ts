@@ -1,4 +1,4 @@
-import { Game, GameContext, StationMode, VIEW_W, VIEW_H } from '../../core/game';
+import { Game, GameContext, MK_H, MK_W, StationMode, VIEW_W, VIEW_H } from '../../core/game';
 import { BeatEngine } from '../../core/beat';
 import { LRCParser, parseMarkup, Segment } from './lrc-parser';
 import bgUrl from './assets/final/Untertitel_BG_v2.png';
@@ -18,6 +18,8 @@ interface Cmd {
   cmd: 'song' | 'space' | 'prev' | 'nextsong' | 'restart' | 'jump' | 'reset' | 'auto' | 'micdev' | 'hello' | 'bpmreset' | 'bpmset' | 'notice';
   name?: string;
   content?: string;
+  /** song: Teilungsgrenze, mit der das Panel geparst hat (Default 36) */
+  maxChars?: number;
   /** notice: Durchsage-Text ('' = Durchsage aus) */
   text?: string;
   index?: number;
@@ -114,6 +116,55 @@ const NOTICE_BAR_B3 = '#ff0000';
 const NOTICE_BAR_B1 = '#e24f36';
 const NOTICE_BAR_H = 120;
 
+/* ---------- Mitsingkonzert-Layout (quadratische View MK_W×MK_H) ----------
+ * Oben die aktuelle Zeile groß, darunter die nächsten zwei Zeilen kleiner
+ * und gedimmt — das Publikum sieht, was kommt, und bleibt nicht an einer
+ * Zeile hängen, falls der Operator mal knapp weiterschaltet. Beim
+ * Weiterschalten rutschen alle Zeilen einen Platz nach oben (Größe und
+ * Deckkraft gleiten mit), unten blendet die nächste ein. Hat eine
+ * Vorschauzeile eine {Sprungmarke}, steht deren Name als kleiner Trenner
+ * darüber („── REFRAIN ──“) — so sieht man den Wechsel in den nächsten
+ * Block kommen. In der aktuellen Zeile verschwindet der Trenner.
+ *
+ * Eine Zeile bricht auf höchstens zwei Reihen um (an der ausgewogensten
+ * Wortgrenze) und schrumpft erst danach. Gesetzt wird in Referenzgröße
+ * MK_REF_SIZE; die Plätze skalieren nur — so springt der Umbruch beim
+ * Hochrutschen nicht. */
+/** Schriftgröße der aktuellen Zeile = Referenz für Umbruch und Messung */
+const MK_REF_SIZE = 112;
+/** Zeilenabstand (× Schriftgröße) zwischen den zwei Reihen einer Zeile */
+const MK_LINE_H = 1.1;
+/** Nutzbreite für den Text (Rand links/rechts je 96 px) */
+const MK_MAX_W = MK_W - 2 * 96;
+/** Lyrics in Weiß, Trenner im BAYERN-1-Blau */
+const MK_TEXT = '#ffffff';
+const MK_ACCENT = '#00a0d5';
+/** Trenner: Schriftgröße (in Referenz-px, skaliert mit dem Platz) und
+ *  Abstand über der Oberkante der Zeile */
+const MK_LABEL_SIZE = 64;
+const MK_LABEL_GAP = 58;
+/** Plätze: -1 = gerade oben raus, 0 = aktuell, 1/2 = Vorschau, 3 = kommt
+ *  unten rein. y = Mitte der Zeile in View-Koordinaten. Zwischen den
+ *  Plätzen wird linear interpoliert (die Bewegung selbst ist geeast). */
+const MK_SLOTS: Array<{ y: number; size: number; alpha: number }> = [
+  { y: 120, size: MK_REF_SIZE, alpha: 0 },
+  { y: 440, size: MK_REF_SIZE, alpha: 1 },
+  { y: 860, size: 72, alpha: 0.6 },
+  { y: 1150, size: 72, alpha: 0.38 },
+  { y: 1420, size: 72, alpha: 0 },
+];
+/** Notfall-Durchsage im Mitsingkonzert: statischer Text auf rotem Block,
+ *  mittig im Quadrat (kein Laufband — im Quadrat ist Platz zum Stehen) */
+const MK_NOTICE_SIZE = 96;
+const MK_NOTICE_PAD = 72;
+
+/** Umbruch einer Zeile in Referenzgröße (gecacht pro Text) */
+interface MkLayout {
+  rows: Array<{ segs: Segment[]; widths: number[]; w: number }>;
+  /** Schrumpffaktor, falls auch zwei Reihen zu breit sind */
+  fit: number;
+}
+
 /** Vertikaler Durchlauf (abwärts): Zeilen fliegen von oben aus dem Bild
  *  rein und knapp unterhalb der Farbfläche raus (dort wischt die Clip-
  *  Maske sie an der Unterkante weg). Kein Alpha-Fade. */
@@ -198,6 +249,17 @@ export class Schmalaoke implements Game {
   private sprites: Sprite[] = [];
   /** BAYERN-1-Modus: kein HG-Asset, Lyrics im unteren Drittel */
   private b1 = false;
+  /** Mitsingkonzert: quadratische View, Drei-Zeilen-Layout */
+  private mk = false;
+  /** Sprungmarke pro Zeile ({Name}) — für die Trenner im Mitsingkonzert */
+  private sections: Array<string | null> = [];
+  /** Mitsingkonzert-Scroll: angezeigte Zeilenposition gleitet von
+   *  mkFrom zu currentLine (Start mkT0) */
+  private mkFrom = 0;
+  private mkT0 = -1;
+  /** Zeile, auf die die laufende Gleitbewegung zielt */
+  private mkTarget = 0;
+  private mkLayouts = new Map<string, MkLayout>();
   /** Notfall-Durchsage: Text ('' = aus), verdrängt die Lyrics-Anzeige */
   private notice = '';
   private noticeT0 = 0;
@@ -208,6 +270,9 @@ export class Schmalaoke implements Game {
 
   setStationMode(mode: StationMode) {
     this.b1 = mode === 'b1';
+    this.mk = mode === 'mk';
+    this.mkFrom = this.mkTarget = this.currentLine;
+    this.mkT0 = -1;
   }
 
   init(ctx: GameContext) {
@@ -228,7 +293,7 @@ export class Schmalaoke implements Game {
     const msg = payload as Cmd;
     switch (msg.cmd) {
       case 'song':
-        this.loadSong(msg.name ?? '', msg.content ?? '');
+        this.loadSong(msg.name ?? '', msg.content ?? '', msg.maxChars);
         break;
       case 'space':
         this.handleSpace();
@@ -482,6 +547,10 @@ export class Schmalaoke implements Game {
     // Hintergrund); der Host cleart den Canvas jeden Frame.
     // Während einer Notfall-Durchsage bleibt auch in BAYERN 3 das Band-
     // Asset weg: nur der rote Balken auf Alpha, kein Pink/Grün darunter
+    if (this.mk) {
+      this.renderMk(g);
+      return;
+    }
     if (!this.b1 && !this.notice && this.bg.complete && this.bg.naturalWidth) {
       this.drawBg(g);
     }
@@ -574,6 +643,208 @@ export class Schmalaoke implements Game {
     g.restore();
   }
 
+  /* ---------- Mitsingkonzert ---------- */
+
+  private renderMk(g: CanvasRenderingContext2D) {
+    if (this.notice) {
+      this.drawNoticeMk(g);
+      return;
+    }
+    if (this.errorText) {
+      this.drawMkLine(g, this.errorText, null, 0);
+      return;
+    }
+    if (!this.lyricsModeStarted || this.songEndedDisplayed) return;
+
+    // Angezeigte Position: gleitet vom alten zum neuen currentLine
+    let pos = this.currentLine;
+    if (this.mkT0 >= 0) {
+      const t = (this.time - this.mkT0) / ANIM_S;
+      if (t >= 1) this.mkT0 = -1;
+      else pos = this.mkFrom + (this.currentLine - this.mkFrom) * ease(t);
+    }
+    const first = Math.max(0, Math.floor(pos) - 1);
+    const last = Math.min(this.lines.length - 1, Math.ceil(pos) + MK_SLOTS.length - 2);
+    for (let i = first; i <= last; i++) {
+      this.drawMkLine(g, this.lines[i], this.sections[i] ?? null, i - pos);
+    }
+  }
+
+  /** Neue Zeile im Mitsingkonzert: weich gleiten (vor/zurück) oder harter
+   *  Schnitt (Start, Sprung, Neustart) */
+  private mkMove(hard: boolean) {
+    if (hard) {
+      this.mkT0 = -1;
+      return;
+    }
+    // Aus der aktuellen Zwischenposition weiter — schnelles Mehrfach-
+    // Drücken bleibt flüssig statt zu springen
+    let from = this.mkFrom;
+    if (this.mkT0 >= 0) {
+      const t = Math.min(1, (this.time - this.mkT0) / ANIM_S);
+      from = this.mkFrom + (this.mkTarget - this.mkFrom) * ease(t);
+    } else {
+      from = this.mkTarget;
+    }
+    this.mkFrom = from;
+    this.mkT0 = this.time;
+  }
+  /** Eine Zeile auf Platz-Position slot (0 = aktuell, 1/2 = Vorschau,
+   *  Zwischenwerte während der Bewegung) */
+  private drawMkLine(g: CanvasRenderingContext2D, text: string, section: string | null, slot: number) {
+    const sp = slot + 1; // Index in MK_SLOTS (Platz -1 liegt bei 0)
+    if (sp < 0 || sp > MK_SLOTS.length - 1) return;
+    const i0 = Math.floor(sp);
+    const i1 = Math.min(MK_SLOTS.length - 1, i0 + 1);
+    const f = sp - i0;
+    const a = MK_SLOTS[i0];
+    const b = MK_SLOTS[i1];
+    const y = a.y + (b.y - a.y) * f;
+    const size = a.size + (b.size - a.size) * f;
+    const alpha = a.alpha + (b.alpha - a.alpha) * f;
+    if (!text || alpha <= 0.01) return;
+
+    const lay = this.mkLayout(g, text);
+    const k = size / MK_REF_SIZE;
+    const rowH = MK_REF_SIZE * MK_LINE_H;
+    const n = lay.rows.length;
+    g.save();
+    g.globalAlpha = alpha;
+    g.textBaseline = 'middle';
+    g.textAlign = 'left';
+    g.translate(MK_W / 2, y);
+    g.scale(k, k);
+
+    // Trenner nur in der Vorschau: blendet beim Hochrutschen auf Platz 0
+    // aus. Er bleibt kräftig, auch wenn die Zeile selbst gedimmt ist — nur
+    // beim Reinkommen von unten blendet er mit der Zeile ein.
+    if (section) {
+      const la = Math.min(1, Math.max(0, slot)) * Math.min(1, alpha / MK_SLOTS[3].alpha);
+      if (la > 0.01) {
+        const top = -(n * rowH * lay.fit) / 2;
+        this.drawMkLabel(g, section, top - MK_LABEL_GAP, la);
+      }
+    }
+
+    g.scale(lay.fit, lay.fit);
+    g.fillStyle = MK_TEXT;
+    lay.rows.forEach((row, r) => {
+      const ry = (r - (n - 1) / 2) * rowH;
+      let x = -row.w / 2;
+      row.segs.forEach((s, j) => {
+        g.font = mkFont(s);
+        g.fillText(s.text, x, ry);
+        if (s.u) g.fillRect(x, ry + MK_REF_SIZE * UNDERLINE_Y, row.widths[j], MK_REF_SIZE * UNDERLINE_H);
+        x += row.widths[j];
+      });
+    });
+    g.restore();
+  }
+
+  /** Trenner „── NAME ──“ zentriert auf Höhe y (lokale Koordinaten),
+   *  alpha absolut (unabhängig von der Deckkraft der Zeile) */
+  private drawMkLabel(g: CanvasRenderingContext2D, name: string, y: number, alpha: number) {
+    const label = name.toUpperCase();
+    g.save();
+    g.globalAlpha = alpha;
+    g.fillStyle = MK_ACCENT;
+    g.font = `800 ${MK_LABEL_SIZE}px 'TheSans', system-ui, sans-serif`;
+    g.letterSpacing = `${Math.round(MK_LABEL_SIZE * 0.12)}px`;
+    const w = g.measureText(label).width;
+    g.textAlign = 'center';
+    g.fillText(label, 0, y);
+    // Linien links und rechts vom Namen
+    const gap = MK_LABEL_SIZE * 0.6;
+    const len = MK_LABEL_SIZE * 2.4;
+    const h = Math.max(4, MK_LABEL_SIZE * 0.08);
+    g.fillRect(-w / 2 - gap - len, y - h / 2, len, h);
+    g.fillRect(w / 2 + gap, y - h / 2, len, h);
+    g.restore();
+  }
+
+  /** Umbruch: passt die Zeile in MK_MAX_W, bleibt sie einreihig; sonst an
+   *  der Wortgrenze, die die beiden Reihen am gleichmäßigsten macht. Sind
+   *  auch zwei Reihen zu breit, schrumpft die ganze Zeile. */
+  private mkLayout(g: CanvasRenderingContext2D, text: string): MkLayout {
+    const cached = this.mkLayouts.get(text);
+    if (cached) return cached;
+    const segs = parseMarkup(text);
+    // Wörter samt folgendem Leerzeichen als Stil-Stücke
+    const tokens: Segment[] = [];
+    for (const s of segs) {
+      for (const part of s.text.split(/(?<= )/)) if (part) tokens.push({ ...s, text: part });
+    }
+    const measure = (t: Segment) => {
+      g.font = mkFont(t);
+      return g.measureText(t.text).width;
+    };
+    const widths = tokens.map(measure);
+    const trimW = (from: number, to: number) => {
+      // Breite der Tokens [from, to) ohne das letzte Leerzeichen
+      let w = 0;
+      for (let i = from; i < to; i++) w += widths[i];
+      const lastTok = tokens[to - 1];
+      if (lastTok && lastTok.text.endsWith(' ')) {
+        g.font = mkFont(lastTok);
+        w -= g.measureText(' ').width;
+      }
+      return w;
+    };
+    const row = (from: number, to: number) => {
+      const rs = tokens.slice(from, to).map((t) => ({ ...t }));
+      if (rs.length) rs[rs.length - 1].text = rs[rs.length - 1].text.trimEnd();
+      const ws = rs.map(measure);
+      return { segs: rs, widths: ws, w: ws.reduce((x, y) => x + y, 0) };
+    };
+
+    let lay: MkLayout;
+    const full = trimW(0, tokens.length);
+    if (full <= MK_MAX_W || tokens.length < 2) {
+      lay = { rows: [row(0, tokens.length)], fit: Math.min(1, MK_MAX_W / Math.max(1, full)) };
+    } else {
+      let best = 1;
+      let bestW = Infinity;
+      for (let i = 1; i < tokens.length; i++) {
+        const w = Math.max(trimW(0, i), trimW(i, tokens.length));
+        if (w < bestW) {
+          bestW = w;
+          best = i;
+        }
+      }
+      lay = { rows: [row(0, best), row(best, tokens.length)], fit: Math.min(1, MK_MAX_W / bestW) };
+    }
+    this.mkLayouts.set(text, lay);
+    return lay;
+  }
+
+  /** Durchsage im Quadrat: Text umgebrochen auf rotem Block, mittig. Zu
+   *  viel Text schrumpft, bis er ins Bild passt. */
+  private drawNoticeMk(g: CanvasRenderingContext2D) {
+    const paras = this.notice
+      .split('\n')
+      .map((l) => l.trim().replace(/\s+/g, ' '))
+      .filter(Boolean);
+    if (!paras.length) return;
+    g.save();
+    let size = MK_NOTICE_SIZE;
+    let rows: string[] = [];
+    for (; size >= 32; size -= 8) {
+      g.font = `700 ${size}px 'TheSans', system-ui, sans-serif`;
+      rows = paras.flatMap((p) => wrapWords(g, p, MK_MAX_W));
+      if (rows.length * size * MK_LINE_H + 2 * MK_NOTICE_PAD <= MK_H) break;
+    }
+    const lh = size * MK_LINE_H;
+    const h = rows.length * lh + 2 * MK_NOTICE_PAD;
+    const top = (MK_H - h) / 2;
+    g.fillStyle = NOTICE_BAR_B1;
+    g.fillRect(0, top, MK_W, h);
+    g.fillStyle = '#ffffff';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    rows.forEach((r, i) => g.fillText(r, MK_W / 2, top + MK_NOTICE_PAD + (i + 0.5) * lh));
+    g.restore();
+  }
+
   /* ---------- Notfall-Durchsage ---------- */
 
   private setNotice(text: string) {
@@ -646,6 +917,9 @@ export class Schmalaoke implements Game {
     this.errorText = null;
     this.endTimer = -1;
     this.sprites = [];
+    this.sections = [];
+    this.mkLayouts.clear();
+    this.mkT0 = -1;
     this.beatCounts = [];
     this.currentBeatInLine = 0;
     this.beatCooldownUntil = 0;
@@ -653,14 +927,15 @@ export class Schmalaoke implements Game {
     this.refBpm = 0;
   }
 
-  private loadSong(name: string, content: string) {
+  private loadSong(name: string, content: string, maxChars?: number) {
     this.resetForNewSong();
-    if (!this.parser.parseContent(content)) {
+    if (!this.parser.parseContent(content, maxChars)) {
       this.errorText = 'Keine Lyrics gefunden';
       this.sendPresenter();
       return;
     }
     this.lines = [...this.parser.lyricsLines];
+    this.sections = [...this.parser.sections];
     this.beatCounts = [...this.parser.beatCounts];
     this.autoCapable = this.parser.beatTagged.some(Boolean);
     this.refBpm = this.parser.refBpm;
@@ -678,6 +953,8 @@ export class Schmalaoke implements Game {
   /** Harter Schnitt ohne Animation (Start, Sprung, Restart) */
   private showHard() {
     this.sprites = [{ text: this.currentText(), from: 'current', to: 'current', t0: this.time, transient: false }];
+    this.mkMove(true);
+    this.mkTarget = this.currentLine;
   }
 
   private handleSpace() {
@@ -745,6 +1022,8 @@ export class Schmalaoke implements Game {
   /** Forward: alte Zeile fliegt nach unten raus (Maske wischt sie an der
    *  Unterkante der Farbfläche weg), neue Zeile fliegt von oben ein */
   private animateForward() {
+    this.mkMove(false);
+    this.mkTarget = this.currentLine;
     const prevText = this.currentLine > 0 ? this.lines[this.currentLine - 1] : '';
     this.sprites = [
       { text: prevText, from: 'current', to: 'exitDown', t0: this.time, transient: true },
@@ -754,6 +1033,8 @@ export class Schmalaoke implements Game {
 
   /** Backward: gespiegelt — alte Zeile fliegt oben raus, neue kommt von unten */
   private animateBackward() {
+    this.mkMove(false);
+    this.mkTarget = this.currentLine;
     const oldText = this.currentLine + 1 <= this.lines.length - 1 ? this.lines[this.currentLine + 1] : '';
     this.sprites = [
       { text: oldText, from: 'current', to: 'exitUp', t0: this.time, transient: true },
@@ -826,4 +1107,26 @@ export class Schmalaoke implements Game {
       notice: this.notice,
     });
   }
+}
+
+/** Schrift einer Lyrics-Zeile im Mitsingkonzert (Referenzgröße) */
+function mkFont(s: Segment): string {
+  return `${s.i ? 'italic ' : ''}${s.b ? 900 : 700} ${MK_REF_SIZE}px 'TheSans', system-ui, sans-serif`;
+}
+
+/** Einfacher Wort-Umbruch für reinen Text (aktueller Font in g) */
+function wrapWords(g: CanvasRenderingContext2D, text: string, maxW: number): string[] {
+  const rows: string[] = [];
+  let line = '';
+  for (const word of text.split(' ')) {
+    const next = line ? `${line} ${word}` : word;
+    if (line && g.measureText(next).width > maxW) {
+      rows.push(line);
+      line = word;
+    } else {
+      line = next;
+    }
+  }
+  if (line) rows.push(line);
+  return rows;
 }

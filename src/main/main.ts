@@ -28,7 +28,8 @@ function createWindows() {
     // komplett verdeckt oder minimiert ist
     webPreferences: { contextIsolation: true, nodeIntegration: false, preload, backgroundThrottling: false },
   });
-  // Beim manuellen Resizen 16:9 halten — im Fenstermodus keine schwarzen Balken
+  // Beim manuellen Resizen 16:9 halten — im Fenstermodus keine schwarzen
+  // Balken. Im Mitsingkonzert-Modus meldet die Wall 1:1 ('wall-aspect').
   wall.setAspectRatio(16 / 9);
   wall.loadFile(path.join(rendererDir, 'wall.html'));
 
@@ -162,9 +163,22 @@ ndi.onTally = (tally) => {
 };
 
 // Nachrichten zwischen Operator- und Wall-Fenster vermitteln
-ipcMain.on('msg', (event, msg: { type?: string }) => {
+ipcMain.on('msg', (event, msg: { type?: string; ratio?: number }) => {
   if (msg?.type === 'wall-fullscreen') {
     wall?.setFullScreen(!wall.isFullScreen());
+    return;
+  }
+  // Wall meldet ihr Ausgabeformat (Festival 16:9, Mitsingkonzert 1:1):
+  // Fenster auf das Seitenverhältnis bringen, Höhe bleibt
+  if (msg?.type === 'wall-aspect') {
+    const ratio = Number(msg.ratio);
+    if (wall && !wall.isDestroyed() && ratio > 0) {
+      wall.setAspectRatio(ratio);
+      if (!wall.isFullScreen()) {
+        const [, h] = wall.getContentSize();
+        wall.setContentSize(Math.round(h * ratio), h);
+      }
+    }
     return;
   }
   const target = event.sender === wall?.webContents ? operator : wall;

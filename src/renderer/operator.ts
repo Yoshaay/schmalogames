@@ -1,4 +1,4 @@
-import { GameEntry, OperatorPanel, SettingDef } from './core/game';
+import { GameEntry, OperatorPanel, SettingDef, StationMode, parseStationMode } from './core/game';
 import { games } from './games/registry';
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -21,14 +21,15 @@ for (const entry of games) {
 }
 
 // ---------- Sender-Modus: BAYERN 3 (alle Spiele) / BAYERN 1 (nur Schmalaoke) ----------
-// Rein eine Operator-Ansichtssache: die Wall kennt keinen Modus. Beim
-// Umschalten wird ein Spiel, das es im Zielmodus nicht gibt, gestoppt.
-type StationMode = 'b3' | 'b1';
+// Mitsingkonzert ('mk'): nur Schmalaoke, quadratisches Ausgabeformat und
+// eigenes Operator-Layout. Beim Umschalten wird ein Spiel, das es im
+// Zielmodus nicht gibt, gestoppt.
 const MODE_GAMES: Record<StationMode, string[]> = {
   b3: games.map((g) => g.id),
   b1: ['schmalaoke'],
+  mk: ['schmalaoke'],
 };
-let mode: StationMode = localStorage.getItem('operator.mode') === 'b1' ? 'b1' : 'b3';
+let mode: StationMode = parseStationMode(localStorage.getItem('operator.mode'));
 
 function applyMode(next: StationMode) {
   mode = next;
@@ -36,6 +37,7 @@ function applyMode(next: StationMode) {
   // Wall färbt den 16:9-Rahmen passend (BAYERN 1 = Blau statt CI-Grün)
   window.bus.send({ type: 'mode', mode });
   document.body.classList.toggle('mode-b1', mode === 'b1');
+  document.body.classList.toggle('mode-mk', mode === 'mk');
   document.querySelectorAll<HTMLButtonElement>('#mode-switch button').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.mode === mode);
   });
@@ -45,6 +47,7 @@ function applyMode(next: StationMode) {
   if (activeGameId && !MODE_GAMES[mode].includes(activeGameId)) {
     window.bus.send({ type: 'stop' });
   }
+  gamePanel?.onModeChange?.(mode);
 }
 document.querySelectorAll<HTMLButtonElement>('#mode-switch button').forEach((btn) => {
   btn.onclick = () => applyMode(btn.dataset.mode as StationMode);
@@ -335,6 +338,7 @@ function buildPanels(entry: GameEntry | null) {
     gamePanel = entry.buildOperatorPanel(gameUiEl, {
       send: (payload) => window.bus.send({ type: 'game', payload }),
     });
+    gamePanel.onModeChange?.(mode);
   }
 
   if (!entry) {

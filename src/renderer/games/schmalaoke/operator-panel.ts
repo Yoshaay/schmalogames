@@ -1,5 +1,5 @@
-import { OperatorPanel, OperatorPanelApi } from '../../core/game';
-import { LRCParser, parseMarkup, plainText } from './lrc-parser';
+import { OperatorPanel, OperatorPanelApi, StationMode } from '../../core/game';
+import { LRCParser, MAX_LINE_CHARS, MK_MAX_LINE_CHARS, parseMarkup, plainText } from './lrc-parser';
 
 /**
  * Rundown + Presenter-Ansicht — portiert aus SchmalKaraoke_ALPHA
@@ -11,6 +11,8 @@ import { LRCParser, parseMarkup, plainText } from './lrc-parser';
 interface Song {
   name: string;
   content: string;
+  /** Teilungsgrenze beim Parsen — geht mit an die Wall (gleiche Zeilen) */
+  maxChars: number;
   title: string;
   artist: string;
   lines: string[];
@@ -169,6 +171,29 @@ const STYLE = `
   .ka-notice-box .ka-notice-hint { font-family: var(--font-mono); font-size: 10px; color: var(--ink-dim); }
   .ka-status .notice-live { color: var(--live); font-weight: 700; }
 
+  /* ---------- Mitsingkonzert (.ka-mk) ----------
+     Schmale Setlist links, Rundown groß und umbrechend in der Mitte,
+     Sprungmarken als große Buttons in #preview-extra unter der Vorschau. */
+  .ka-mk .ka-auto { display: none; }
+  .ka-mk .ka-cols { grid-template-columns: 220px minmax(0, 1fr); }
+  .ka-mk .ka-lyrics { padding: 4px 0 40vh; }
+  .ka-mk .ka-lyric {
+    font-size: 16px; line-height: 1.3; padding: 6px 14px;
+    white-space: normal; border-left-width: 4px;
+  }
+  .ka-mk .ka-lyric.current { font-size: 21px; font-weight: 700; }
+  .ka-mk .ka-lyric .sec { display: block; font-size: 10px; margin: 4px 0 2px; }
+  .ka-mk .ka-lyric .note { font-size: 12px; white-space: normal; }
+  #preview-extra .ka-markerbox { display: flex; flex-direction: column; gap: 8px; min-height: 0; flex: 1; }
+  #preview-extra .ka-markers {
+    flex-direction: column; flex-wrap: nowrap; gap: 6px; max-height: none; flex: 1; min-height: 0;
+  }
+  #preview-extra .ka-marker {
+    font-family: var(--font-body); font-size: 15px; font-weight: 600; letter-spacing: 0;
+    padding: 10px 12px; display: flex; align-items: center; flex-shrink: 0;
+  }
+  #preview-extra .ka-marker .key { font-family: var(--font-mono); font-size: 12px; min-width: 20px; margin-right: 10px; padding: 1px 4px; }
+
   /* Leere Setlist: Drop-Hinweis mittig, wie im Original */
   .ka-empty {
     height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -223,6 +248,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
             <button data-id="noticesend" class="ka-btn-wide" title="Text live auf die Wall schicken (⌘⏎ im Textfeld)">Fertig — live schicken</button>
             <span class="ka-notice-hint" data-id="noticehint">Text eintippen, dann „Fertig“ — erst dann geht er raus.</span>
           </div>
+          <div class="ka-auto">
           <div class="ka-head" title="Beats zählen die Zeilen weiter — braucht &lt;N&gt;-Tags in der LRC">Auto-Advance · Beat-Sync</div>
           <button data-id="auto" class="ka-btn-wide" title="Taste A schaltet um"><span class="ka-beat" data-id="beatdot"></span><span data-id="autolabel">Auto-Advance</span></button>
           <div class="ka-row">
@@ -236,25 +262,35 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
             <span class="ka-meta" data-id="bpm">—</span>
             <button data-id="bpmreset" title="BPM zurücksetzen — Erkennung lockt neu ein">Reset</button>
           </div>
+          </div>
           <input type="file" accept=".lrc" multiple hidden>
           <input type="file" accept=".json" data-id="setlistfile" hidden>
         </div>
         <div class="ka-col">
-          <div class="ka-head" title="Klick oder Ziffer armiert — Leertaste löst den Sprung aus">Sprungmarken</div>
-          <div class="ka-markers" data-id="markers"></div>
+          <div class="ka-markerbox" data-id="markerbox">
+            <div class="ka-head" title="Klick oder Ziffer armiert — Leertaste löst den Sprung aus">Sprungmarken</div>
+            <div class="ka-markers" data-id="markers"></div>
+          </div>
           <div class="ka-lyrics" data-id="lyrics"></div>
         </div>
       </div>
       <div class="ka-status">
         <span data-id="meta">Kein Song geladen.</span>
-        <span class="ka-keys"><kbd>Leertaste</kbd> weiter · <kbd>←</kbd> zurück · <kbd>R</kbd> Neustart · <kbd>1–9</kbd> Sprungmarke · <kbd>N</kbd> nächster Song</span>
+        <span class="ka-keys" data-id="keys"></span>
       </div>
     </div>
   `;
 
   const q = (id: string) => container.querySelector<HTMLElement>(`[data-id="${id}"]`)!;
+  const rootEl = container.querySelector<HTMLElement>('.ka-root')!;
   const songsEl = q('songs');
   const lyricsEl = q('lyrics');
+  // Sprungmarken wandern im Mitsingkonzert unter die Vorschau (außerhalb
+  // des Containers) — deshalb fest referenziert statt per q()
+  const markerBox = q('markerbox');
+  const markersEl = q('markers');
+  const markerHome = markerBox.parentElement!;
+  const keysEl = q('keys');
   const metaEl = q('meta');
   const fileInput = container.querySelector<HTMLInputElement>('input[type=file]')!;
 
@@ -262,13 +298,19 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
   let activeIndex = -1;
   let presenter: PresenterState | null = null;
 
+  /** Teilungsgrenze für den aktuellen Sender-Modus */
+  const modeMaxChars = () => (localStorage.getItem('operator.mode') === 'mk' ? MK_MAX_LINE_CHARS : MAX_LINE_CHARS);
+
   /** Song aus LRC-Inhalt bauen (Parse, Metadaten, Validierung) */
   function songFromContent(name: string, content: string, status: Song['status'] = 'planned'): Song {
     const p = new LRCParser();
-    const ok = p.parseContent(content);
+    // Mitsingkonzert bricht auf der Wall selbst um → später teilen
+    const maxChars = modeMaxChars();
+    const ok = p.parseContent(content, maxChars);
     return {
       name,
       content,
+      maxChars,
       title: p.metadata.ti || name.replace(/\.lrc$/i, ''),
       artist: p.metadata.ar || '',
       lines: ok ? [...p.lyricsLines] : [],
@@ -384,6 +426,12 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
   }
 
   function loadSong(index: number) {
+    // Song wurde in einem anderen Modus eingelesen (z.B. Setlist vor dem
+    // Umschalten aufs Mitsingkonzert geladen) → frisch parsen, damit die
+    // Zeilen zur Wall-Darstellung passen
+    if (songs[index] && songs[index].maxChars !== modeMaxChars()) {
+      songs[index] = songFromContent(songs[index].name, songs[index].content, songs[index].status);
+    }
     const song = songs[index];
     if (!song || !song.lines.length) return;
     // vorherigen loaded-Song zurücksetzen (falls nicht schon gespielt)
@@ -392,7 +440,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     });
     activeIndex = index;
     song.status = 'loaded';
-    api.send({ cmd: 'song', name: song.name, content: song.content });
+    api.send({ cmd: 'song', name: song.name, content: song.content, maxChars: song.maxChars });
     renderSongs();
     renderMarkers();
     renderLyrics();
@@ -664,7 +712,6 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
 
   /** Sprungmarken ({Name}-Tags) als Chips — Klick/Ziffer armiert */
   function renderMarkers() {
-    const markersEl = q('markers');
     markersEl.innerHTML = '';
     const song = songs[activeIndex];
     if (!song) {
@@ -762,6 +809,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
       parts.push(`<span class="${cls}">${presenter.remaining} Zeilen übrig</span>`);
     }
     if (presenter.pendingJump >= 0) parts.push(`<span class="rest-crit">Sprung armiert → Zeile ${presenter.pendingJump + 1} (Leertaste)</span>`);
+    if (guardKey) parts.push(`<span class="rest-crit">${guardKey === 'nextsong' ? 'N' : 'R'} nochmal drücken = ${guardKey === 'nextsong' ? 'nächster Song' : 'Neustart'}</span>`);
     metaEl.innerHTML = parts.join(' · ');
   }
 
@@ -781,6 +829,77 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     KeyA: 'auto',
   };
 
+  /* ---------- Mitsingkonzert ---------- */
+  // Eigenes Layout für eine Person am MacBook: Beat-Sync weg (alles von
+  // Hand), Sprungmarken als große Buttons unter der Vorschau, Rundown
+  // groß und mitlaufend. N und R brauchen einen zweiten Druck — ein
+  // versehentliches N mitten im Song wäre live fatal.
+  let mk = false;
+  /** Doppeldruck-Sicherung: Taste, die gerade auf Bestätigung wartet */
+  let guardKey: 'nextsong' | 'restart' | null = null;
+  let guardTimer = -1;
+  const GUARD_MS = 1500;
+
+  function applyMode(mode: StationMode) {
+    mk = mode === 'mk';
+    rootEl.classList.toggle('ka-mk', mk);
+    const extra = document.getElementById('preview-extra');
+    if (mk && extra) {
+      extra.appendChild(markerBox);
+      extra.hidden = false;
+    } else if (markerBox.parentElement !== markerHome) {
+      markerHome.insertBefore(markerBox, lyricsEl);
+      if (extra) extra.hidden = true;
+    }
+    // Auto-Advance ist im Mitsingkonzert nicht bedienbar → sicher aus
+    if (mk && autoOn) autoBtn.click();
+    noticeText.placeholder = mk
+      ? 'Text der Durchsage … (steht groß auf rotem Block im Quadrat, Absätze bleiben Absätze)'
+      : 'Text der Durchsage … (fährt als Laufband in einer Zeile durch, Absätze werden mit +++ verbunden)';
+    clearGuard();
+    renderKeys();
+    scrollToCurrent(false);
+  }
+
+  function renderKeys() {
+    keysEl.innerHTML = mk
+      ? '<kbd>Leertaste</kbd> weiter · <kbd>←</kbd> zurück · <kbd>1–9</kbd> Sprungmarke · <kbd>R</kbd><kbd>R</kbd> Neustart · <kbd>N</kbd><kbd>N</kbd> nächster Song'
+      : '<kbd>Leertaste</kbd> weiter · <kbd>←</kbd> zurück · <kbd>R</kbd> Neustart · <kbd>1–9</kbd> Sprungmarke · <kbd>N</kbd> nächster Song';
+  }
+
+  function clearGuard() {
+    guardKey = null;
+    clearTimeout(guardTimer);
+    updateMeta();
+  }
+
+  /** true = Befehl ausführen; false = erst mal nur scharf geschaltet */
+  function guardPassed(cmd: 'nextsong' | 'restart'): boolean {
+    if (!mk) return true;
+    if (guardKey === cmd) {
+      clearGuard();
+      return true;
+    }
+    guardKey = cmd;
+    clearTimeout(guardTimer);
+    guardTimer = window.setTimeout(clearGuard, GUARD_MS);
+    updateMeta();
+    return false;
+  }
+
+  /** Aktuelle Zeile im Rundown ins obere Drittel holen — so steht sie
+   *  immer an derselben Stelle und man sieht viel vom Kommenden */
+  function scrollToCurrent(smooth = true) {
+    const el = lyricsEl.querySelector<HTMLElement>('.ka-lyric.current');
+    if (!el) return;
+    if (!mk) {
+      el.scrollIntoView({ block: 'nearest' });
+      return;
+    }
+    const top = el.offsetTop - lyricsEl.offsetTop - lyricsEl.clientHeight * 0.25;
+    lyricsEl.scrollTo({ top: Math.max(0, top), behavior: smooth ? 'smooth' : 'auto' });
+  }
+
   function handleCode(code: string) {
     const digit = code.match(/^Digit([1-9])$/);
     if (digit) {
@@ -789,6 +908,9 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     }
     const cmd = KEY_MAP[code];
     if (!cmd) return;
+    if (cmd === 'auto' && mk) return;
+    if ((cmd === 'nextsong' || cmd === 'restart') && !guardPassed(cmd)) return;
+    if (cmd !== 'nextsong' && cmd !== 'restart' && guardKey) clearGuard();
     if (cmd === 'nextsong') q('next').click();
     else if (cmd === 'auto') autoBtn.click();
     else api.send({ cmd });
@@ -810,6 +932,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
   renderSongs();
   renderMarkers();
   renderNotice();
+  renderKeys();
   // Eingangsliste + aktuellen Stand anfordern (Panel evtl. neu aufgebaut)
   api.send({ cmd: 'hello' });
 
@@ -845,7 +968,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
         renderRefBpm();
         updateMeta();
         // aktive Zeile in Sicht halten
-        lyricsEl.querySelector('.ka-lyric.current')?.scrollIntoView({ block: 'nearest' });
+        scrollToCurrent();
       }
       if (msg.kind === 'beat') {
         const { bpm, locked, lockedFor, manual, armed, spaces, ref } = payload as {
@@ -903,8 +1026,16 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
         metaEl.textContent = (payload as { text: string }).text;
       }
     },
+    onModeChange(mode: StationMode) {
+      applyMode(mode);
+    },
     dispose() {
       window.removeEventListener('keydown', onKey);
+      clearTimeout(guardTimer);
+      // Sprungmarken lagen evtl. unter der Vorschau → mit wegräumen
+      markerBox.remove();
+      const extra = document.getElementById('preview-extra');
+      if (extra) extra.hidden = true;
     },
   };
 }

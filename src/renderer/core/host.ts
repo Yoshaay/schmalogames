@@ -1,10 +1,13 @@
-import { Game, GameContext, GameEntry, SettingValues, StationMode, VIEW_W, VIEW_H } from './game';
+import { Game, GameContext, GameEntry, MK_H, MK_W, SettingValues, StationMode, VIEW_W, VIEW_H, parseStationMode } from './game';
 import { Input } from './input';
 
-/** Ausgabeformat: normales FHD-Signal 16:9 (1920×1080) für die
- *  Anlieferung — der Ü-Wagen croppt sich den Wall-Ausschnitt selbst raus. */
-export const OUT_W = 1920;
-export const OUT_H = 1080;
+/** Ausgabeformat Festival (BAYERN 3 / BAYERN 1): normales FHD-Signal 16:9
+ *  (1920×1080) für die Anlieferung — der Ü-Wagen croppt sich den Wall-
+ *  Ausschnitt selbst raus. Im Mitsingkonzert-Modus ist das Signal
+ *  stattdessen das quadratische Nutzbild selbst (MK_W×MK_H), randlos und
+ *  komplett Alpha. */
+const OUT_W = 1920;
+const OUT_H = 1080;
 
 /** Nutzbild im FHD-Frame: die 10:16-View (1200×1920) auf 640×1024
  *  skaliert, mittig platziert. Drumherum liegt die 675×1080-Zone (volle
@@ -65,7 +68,13 @@ export class GameHost {
    *  setStationMode() an das laufende Spiel. Aus localStorage vorbelegt
    *  (gleiche Origin wie das Operator-Fenster), damit ein Wall-Neustart
    *  nicht kurz im falschen Modus hochkommt. */
-  private stationMode: StationMode = localStorage.getItem('operator.mode') === 'b1' ? 'b1' : 'b3';
+  private stationMode: StationMode = parseStationMode(localStorage.getItem('operator.mode'));
+  /** Aktuelle Größe von Anlieferungsbild und Game-View — hängt am Modus
+   *  (applyFormat) */
+  private outW = OUT_W;
+  private outH = OUT_H;
+  private viewW = VIEW_W;
+  private viewH = VIEW_H;
   private input = new Input(window);
   private current: Game | null = null;
   private entry: GameEntry | null = null;
@@ -84,22 +93,13 @@ export class GameHost {
     private canvas: HTMLCanvasElement,
     private games: GameEntry[],
   ) {
-    canvas.width = OUT_W;
-    canvas.height = OUT_H;
     this.g = canvas.getContext('2d')!;
-    this.g.imageSmoothingQuality = 'high';
-    this.view.width = VIEW_W;
-    this.view.height = VIEW_H;
     this.vg = this.view.getContext('2d')!;
-    this.out.width = OUT_W;
-    this.out.height = OUT_H;
     // willReadFrequently: der NDI-Abgriff liest das Composite 25–60×/s
     // per getImageData — ohne den Hint wäre das jedes Mal ein GPU-Readback
     this.og = this.out.getContext('2d', { willReadFrequently: true })!;
-    this.og.imageSmoothingQuality = 'high';
-    this.maskCanvas.width = VIEW_W;
-    this.maskCanvas.height = VIEW_H;
     this.mg = this.maskCanvas.getContext('2d')!;
+    this.applyFormat();
 
     const savedFps = Number(localStorage.getItem('ndi.fps'));
     if (savedFps > 0) this.ndiFps = savedFps;
@@ -114,9 +114,36 @@ export class GameHost {
   }
 
   private fitCanvas() {
-    const scale = Math.min(window.innerWidth / OUT_W, window.innerHeight / OUT_H);
-    this.canvas.style.width = `${OUT_W * scale}px`;
-    this.canvas.style.height = `${OUT_H * scale}px`;
+    const scale = Math.min(window.innerWidth / this.outW, window.innerHeight / this.outH);
+    this.canvas.style.width = `${this.outW * scale}px`;
+    this.canvas.style.height = `${this.outH * scale}px`;
+  }
+
+  /** Canvas-Größen an den Modus anpassen: Festival = FHD-16:9-Signal mit
+   *  10:16-View, Mitsingkonzert = quadratisches Signal, View 1:1. Nur bei
+   *  echter Änderung — eine neue Canvas-Größe leert den Canvas und setzt
+   *  den Kontext-State zurück. */
+  private applyFormat() {
+    const mk = this.stationMode === 'mk';
+    const outW = mk ? MK_W : OUT_W;
+    const outH = mk ? MK_H : OUT_H;
+    const viewW = mk ? MK_W : VIEW_W;
+    const viewH = mk ? MK_H : VIEW_H;
+    const changed = outW !== this.canvas.width || outH !== this.canvas.height || viewW !== this.view.width || viewH !== this.view.height;
+    this.outW = outW;
+    this.outH = outH;
+    this.viewW = viewW;
+    this.viewH = viewH;
+    if (!changed) return;
+    this.canvas.width = this.out.width = outW;
+    this.canvas.height = this.out.height = outH;
+    this.view.width = this.maskCanvas.width = viewW;
+    this.view.height = this.maskCanvas.height = viewH;
+    this.g.imageSmoothingQuality = 'high';
+    this.og.imageSmoothingQuality = 'high';
+    this.fitCanvas();
+    // Main hält beim Resizen des Wall-Fensters das Seitenverhältnis
+    window.bus.send({ type: 'wall-aspect', ratio: outW / outH });
   }
 
   private handleMessage(msg: { type: string; [k: string]: unknown }) {
@@ -150,12 +177,20 @@ export class GameHost {
         }
         break;
       }
-      case 'mode':
+      case 'mode': {
         // Sender-Umschalter im Operator: BAYERN 1 färbt den 16:9-Rahmen
-        // blau, und das laufende Spiel darf sein Layout anpassen
-        this.stationMode = msg.mode === 'b1' ? 'b1' : 'b3';
+        // blau, Mitsingkonzert stellt aufs quadratische Format um, und das
+        // laufende Spiel darf sein Layout anpassen
+        const prevW = this.outW;
+        const prevH = this.outH;
+        this.stationMode = parseStationMode(msg.mode);
+        this.applyFormat();
         this.current?.setStationMode?.(this.stationMode);
+        // Neues Format: Vorschau frisch verbinden, damit der Operator das
+        // Video in der neuen Größe bekommt
+        if (prevW !== this.outW || prevH !== this.outH) window.bus.send({ type: 'wall-ready' });
         break;
+      }
       case 'game':
         // Nachricht vom spielspezifischen Operator-Panel
         this.current?.onMessage?.(msg.payload);
@@ -295,6 +330,10 @@ export class GameHost {
    *  halbtransparente Kanten werden zu Grauwerten = weicher Key). */
   private composite(og: CanvasRenderingContext2D, view: HTMLCanvasElement) {
     og.setTransform(1, 0, 0, 1, 0, 0);
+    if (this.stationMode === 'mk') {
+      this.compositeSquare(og, view);
+      return;
+    }
     og.fillStyle = this.stationMode === 'b1' ? FRAME_BLUE : FRAME_GREEN;
     og.fillRect(0, 0, OUT_W, OUT_H);
     og.fillRect(WALL_X, WALL_Y, WALL_W, WALL_H);
@@ -317,6 +356,27 @@ export class GameHost {
     }
   }
 
+  /** Mitsingkonzert: das Signal IST das Nutzbild — kein Rahmen, alles
+   *  echtes Alpha, die View geht 1:1 raus. Die Stanzmaske funktioniert
+   *  genauso (Weiß = Grafik, Schwarz = Live-Bild). */
+  private compositeSquare(og: CanvasRenderingContext2D, view: HTMLCanvasElement) {
+    og.clearRect(0, 0, this.outW, this.outH);
+    if (this.maskMode) {
+      this.mg.setTransform(1, 0, 0, 1, 0, 0);
+      this.mg.globalCompositeOperation = 'source-over';
+      this.mg.clearRect(0, 0, this.viewW, this.viewH);
+      this.mg.drawImage(view, 0, 0);
+      this.mg.globalCompositeOperation = 'source-in';
+      this.mg.fillStyle = '#ffffff';
+      this.mg.fillRect(0, 0, this.viewW, this.viewH);
+      og.fillStyle = '#000000';
+      og.fillRect(0, 0, this.outW, this.outH);
+      og.drawImage(this.maskCanvas, 0, 0, this.outW, this.outH);
+    } else if (this.current) {
+      og.drawImage(view, 0, 0, this.outW, this.outH);
+    }
+  }
+
   run() {
     const frame = (time: number) => {
       // dt deckeln: nach Rucklern keine Riesensprünge
@@ -327,7 +387,7 @@ export class GameHost {
 
       // Das Game rendert in die virtuelle 10:16-View …
       this.vg.setTransform(1, 0, 0, 1, 0, 0);
-      this.vg.clearRect(0, 0, VIEW_W, VIEW_H);
+      this.vg.clearRect(0, 0, this.viewW, this.viewH);
       this.current?.render(this.vg);
 
       // … der Host komponiert daraus das FHD-16:9-Anlieferungsbild
@@ -337,7 +397,7 @@ export class GameHost {
       // Erst leeren: das Composite hat im Nutzbild echtes Alpha — ohne
       // clearRect bleibt dort der vorherige Frame stehen (Konfetti-Schlieren)
       this.g.setTransform(1, 0, 0, 1, 0, 0);
-      this.g.clearRect(0, 0, OUT_W, OUT_H);
+      this.g.clearRect(0, 0, this.outW, this.outH);
       this.g.drawImage(this.out, 0, 0);
 
       // NDI: das Anlieferungsbild als EINE Quelle ins Netz (beide Walls
@@ -347,11 +407,11 @@ export class GameHost {
       this.ndiAccum += dt;
       if (this.ndiAccum >= 1 / this.ndiFps) {
         this.ndiAccum %= 1 / this.ndiFps;
-        const img = this.og.getImageData(0, 0, OUT_W, OUT_H);
+        const img = this.og.getImageData(0, 0, this.outW, this.outH);
         window.ndi.sendFrame({
           stream: NDI_STREAM,
-          width: OUT_W,
-          height: OUT_H,
+          width: this.outW,
+          height: this.outH,
           fps: this.ndiFps,
           data: img.data.buffer,
         });

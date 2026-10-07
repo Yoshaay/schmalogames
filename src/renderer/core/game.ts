@@ -30,6 +30,9 @@ export interface OperatorPanel {
   onKey?(code: string): void;
   /** Aufräumen beim Spielwechsel (Listener entfernen etc.) */
   dispose?(): void;
+  /** Sender-Modus im Operator — direkt nach dem Aufbau und bei jedem
+   *  Umschalten (z.B. Schmalaoke: eigenes Layout fürs Mitsingkonzert) */
+  onModeChange?(mode: StationMode): void;
 }
 
 /** Ein Regler im Operator-Fenster */
@@ -50,8 +53,21 @@ export interface SettingDef {
 
 export type SettingValues = Record<string, number>;
 
-/** Sender-Modus (Umschalter im Operator): BAYERN 3 bzw. BAYERN 1 */
-export type StationMode = 'b3' | 'b1';
+/** Sender-Modus (Umschalter im Operator): BAYERN 3 bzw. BAYERN 1 vom
+ *  Festival, 'mk' = BAYERN 1 Mitsingkonzert (eigenes Ausgabeformat) */
+export type StationMode = 'b3' | 'b1' | 'mk';
+
+/** Gespeicherten/übertragenen Modus lesen — alles Unbekannte = BAYERN 3 */
+export function parseStationMode(value: unknown): StationMode {
+  return value === 'b1' || value === 'mk' ? value : 'b3';
+}
+
+/** Mitsingkonzert: quadratisches Nutzbild — ein Drittel der 4608×1536-
+ *  Leinwand. Die endgültige Wall-Auflösung steht noch nicht fest; ändert
+ *  sie sich, reicht es, diese beiden Werte anzupassen (Ausgabe, NDI,
+ *  Vorschau und Schmalaoke-Layout rechnen alle damit). */
+export const MK_W = 1536;
+export const MK_H = 1536;
 
 export interface Game {
   /** Wird beim Start des Spiels aufgerufen */

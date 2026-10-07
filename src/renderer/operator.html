@@ -48,7 +48,8 @@
       /* Sender-Modus BAYERN 1: nur Schmalaoke, Akzent in BAYERN-1-Blau.
          Alle Akzent-Regeln hängen an --primary/--primary-rgb — der Rest
          der UI schaltet damit automatisch mit um. */
-      body.mode-b1 {
+      body.mode-b1,
+      body.mode-mk {
         --primary: #00a0d5;
         --primary-bright: #2fc3f2;
         --primary-deep: #007aa3;
@@ -296,6 +297,37 @@
         border-radius: 4px;
         overflow: hidden;
         position: relative;
+      }
+      /* ---------- Mitsingkonzert: Regie auf dem MacBook-Bildschirm ----------
+         Nur Schmalaoke → keine Spiele-Leiste, kein Statuspanel (steht alles
+         in der Rundown-Statuszeile). Rundown bekommt die Breite, rechts eine
+         schmale Spalte: quadratische Vorschau oben, darunter die
+         Sprungmarken (#preview-extra, füllt das Schmalaoke-Panel). */
+      body.mode-mk #gamebar,
+      body.mode-mk #status-panel {
+        display: none;
+      }
+      body.mode-mk main.with-sidebar.no-side {
+        grid-template-columns: minmax(0, 1fr) 320px;
+        padding-top: 12px;
+      }
+      body.mode-mk .preview-panel {
+        flex: 0 0 auto;
+      }
+      body.mode-mk .preview-wrap {
+        flex: none;
+        width: 100%;
+        aspect-ratio: 1;
+      }
+      body.mode-mk .preview-frame {
+        width: 100%;
+        aspect-ratio: 1;
+      }
+      #preview-extra {
+        flex: 1 1 auto;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
       }
       .preview-tag {
         position: absolute;
@@ -773,10 +805,11 @@
       <div
         class="mode-switch"
         id="mode-switch"
-        title="Sender-Modus: BAYERN 3 = alle Spiele, BAYERN 1 = nur Schmalaoke (Akzent in BAYERN-1-Blau)"
+        title="Sender-Modus: BAYERN 3 = alle Spiele, BAYERN 1 = nur Schmalaoke (Akzent in BAYERN-1-Blau), MITSINGKONZERT = Schmalaoke im quadratischen Format"
       >
         <button data-mode="b3" class="active">BAYERN 3</button>
         <button data-mode="b1">BAYERN 1</button>
+        <button data-mode="mk" title="BAYERN 1 Mitsingkonzert: nur Schmalaoke, quadratisches Ausgabeformat">MITSINGKONZERT</button>
       </div>
       <div class="spacer"></div>
       <label
@@ -837,11 +870,14 @@
             </div>
           </div>
         </div>
+        <!-- Zusatzfläche unter der Vorschau, die ein Spiel-Panel belegen darf
+             (Schmalaoke im Mitsingkonzert: Sprungmarken als große Buttons) -->
+        <div class="panel" id="preview-extra" hidden></div>
         <div class="panel" id="game-panel" hidden>
           <h2 id="game-panel-title">Spiel</h2>
           <div id="game-ui"></div>
         </div>
-        <div class="panel">
+        <div class="panel" id="status-panel">
           <h2>Status</h2>
           <div id="status"><div class="status-empty">Kein Spiel aktiv.</div></div>
         </div>
