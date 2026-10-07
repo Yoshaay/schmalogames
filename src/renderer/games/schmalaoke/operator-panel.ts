@@ -79,6 +79,17 @@ const STYLE = `
     border-radius: 3px; padding: 0 3px;
   }
   .ka-marker.armed .key { color: #ffffff; border-color: rgba(231, 29, 115, 0.6); }
+  /* Auswahl-Info unter den Sprungmarken (Klick in der Setlist) */
+  .ka-selinfo {
+    flex-shrink: 0; display: flex; flex-direction: column; gap: 3px; margin-top: 10px;
+    padding: 10px 12px; background: #101218; border: 1px solid var(--panel-edge); border-radius: 4px;
+  }
+  .ka-selinfo .sel-name { font-weight: 700; font-size: 14px; margin-bottom: 4px; }
+  .ka-selinfo .sel-k {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--ink-dim); margin-top: 4px;
+  }
+  .ka-selinfo .sel-v { font-size: 14px; line-height: 1.3; color: var(--ink); }
   .ka-head {
     font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.18em;
     text-transform: uppercase; color: var(--ink-dim); margin-top: 6px;
@@ -108,6 +119,8 @@ const STYLE = `
   }
   .ka-song:hover { background: #171a22; }
   .ka-song.active { background: rgba(var(--primary-rgb), 0.1); }
+  /* Ausgewählt (Klick), noch nicht geladen — Doppelklick lädt */
+  .ka-song.selected { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35); }
   .ka-song.dragging { opacity: 0.4; }
   .ka-song.drop-above { box-shadow: inset 0 2px 0 var(--primary); }
   .ka-song.drop-below { box-shadow: inset 0 -2px 0 var(--primary); }
@@ -287,7 +300,11 @@ const STYLE = `
   }
   .ka-status .rest-warn { color: #f9b233; }
   .ka-status .rest-crit { color: var(--live); }
-  .ka-keys { white-space: nowrap; flex-shrink: 0; }
+  /* Tastenhinweise dürfen umbrechen — sonst schiebt die lange Zeile auf
+     schmalen Fenstern einen horizontalen Scrollbalken ins Panel */
+  .ka-keys { min-width: 0; text-align: right; line-height: 1.8; }
+  .ka-keys kbd { white-space: nowrap; }
+  .ka-status > span:first-child { flex-shrink: 0; max-width: 45%; }
   .ka-keys kbd {
     font-family: var(--font-mono); font-size: 10px; border: 1px solid var(--panel-edge);
     border-radius: 3px; padding: 1px 5px;
@@ -352,6 +369,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
           <div class="ka-markerbox" data-id="markerbox">
             <div class="ka-head" title="Klick oder Ziffer armiert — Leertaste löst den Sprung aus">Sprungmarken</div>
             <div class="ka-markers" data-id="markers"></div>
+            <div class="ka-selinfo" data-id="selinfo" hidden></div>
           </div>
           <div class="ka-lyrics" data-id="lyrics"></div>
         </div>
@@ -371,6 +389,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
   // des Containers) — deshalb fest referenziert statt per q()
   const markerBox = q('markerbox');
   const markersEl = q('markers');
+  const selInfoEl = q('selinfo');
   const markerHome = markerBox.parentElement!;
   const keysEl = q('keys');
 
@@ -805,6 +824,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
       input.value = text;
       input.placeholder = fallback;
       input.onclick = (e) => e.stopPropagation();
+      input.ondblclick = (e) => e.stopPropagation(); // Wort markieren ≠ Song laden
       input.onkeydown = (e) => {
         e.stopPropagation();
         if (e.key === 'Enter') finishRenameGroup(group, input.value);
@@ -834,6 +854,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
       input.placeholder = auto;
       input.title = 'Enter übernimmt · Esc bricht ab · leer = Name aus der LRC';
       input.onclick = (e) => e.stopPropagation();
+      input.ondblclick = (e) => e.stopPropagation(); // Wort markieren ≠ Song laden
       input.onkeydown = (e) => {
         e.stopPropagation();
         if (e.key === 'Enter') finishRename(i, input.value);
@@ -866,6 +887,8 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
         e.stopPropagation();
         fn();
       };
+      // Schneller Doppelklick auf ✎/✕ darf den Song nicht laden
+      btn.ondblclick = (e) => e.stopPropagation();
       ops.appendChild(btn);
     }
     return ops;
@@ -988,11 +1011,49 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     return row;
   }
 
+  /* ---------- Auswählen vs. Laden (wie im SchmalKaraoke-Original) ----------
+     Einfacher Klick markiert nur, erst ein Doppelklick lädt — ein
+     versehentlicher Klick in die Setlist lädt live keinen anderen Song.
+     Die Auswahl hängt am Song-Objekt, übersteht also Umsortieren. */
+  let selected: Song | null = null;
+
+  function wireSelect(row: HTMLElement, i: number) {
+    row.title = row.title || 'Klick wählt aus · Doppelklick lädt';
+    row.onclick = () => {
+      // Nur die Klasse umsetzen, NICHT neu rendern: sonst ist die Zeile
+      // beim zweiten Klick ausgetauscht und der Doppelklick kommt nie an
+      selected = songs[i];
+      songsEl.querySelectorAll('.ka-song.selected').forEach((r) => r.classList.remove('selected'));
+      row.classList.add('selected');
+      renderSelInfo();
+    };
+    row.ondblclick = () => loadSong(i);
+  }
+
+  /** Unter den Sprungmarken: erste und letzte Zeile des ausgewählten
+   *  Songs — so erkennt man Versionen, ohne sie zu laden */
+  function renderSelInfo() {
+    // Ausgewählter Song inzwischen entfernt → Auswahl weg
+    if (selected && !songs.includes(selected)) selected = null;
+    selInfoEl.hidden = !selected;
+    if (!selected) return;
+    const texts = selected.lines.map((l) => plainText(l).trim()).filter(Boolean);
+    const esc = (t: string) => t.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
+    // Name aus dem Dateinamen — der [ti:]/[ar:]-Mix ist bei Versionen oft krumm
+    const name = selected.label || `${selected.base}${selected.version ? ` · ${selected.version}` : ''}`;
+    selInfoEl.innerHTML = texts.length
+      ? `<div class="ka-head">Auswahl · ${texts.length} Zeilen</div>
+         <div class="sel-name">${esc(name)}</div>
+         <div class="sel-k">Erste Zeile</div><div class="sel-v">${esc(texts[0])}</div>
+         <div class="sel-k">Letzte Zeile</div><div class="sel-v">${esc(texts[texts.length - 1])}</div>`
+      : `<div class="ka-head">Auswahl</div><div class="sel-name">${esc(name)}</div><div class="sel-k">Keine Lyrics gefunden</div>`;
+  }
+
   /** Normale Zeile (Song mit einer Version) */
   function songRow(i: number): HTMLElement {
     const song = songs[i];
     const row = document.createElement('div');
-    row.className = 'ka-song' + (i === activeIndex ? ' active' : '');
+    row.className = 'ka-song' + (i === activeIndex ? ' active' : '') + (song === selected ? ' selected' : '');
     wireDrag(row, i, 'song', { start: i, count: 1, item: true });
     const dot = document.createElement('span');
     dot.className = `dot dot-${song.status}`;
@@ -1008,7 +1069,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
         ['✕', 'Aus der Setlist entfernen', () => removeRange(i, 1)],
       ]),
     );
-    row.onclick = () => loadSong(i);
+    wireSelect(row, i);
     row.oncontextmenu = (e) => {
       e.preventDefault();
       startRename(i);
@@ -1064,7 +1125,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
   function versionRow(i: number): HTMLElement {
     const song = songs[i];
     const row = document.createElement('div');
-    row.className = 'ka-song ka-version' + (i === activeIndex ? ' active' : '');
+    row.className = 'ka-song ka-version' + (i === activeIndex ? ' active' : '') + (song === selected ? ' selected' : '');
     wireDrag(row, i, 'version', { start: i, count: 1, item: true });
     const dot = document.createElement('span');
     dot.className = `dot dot-${song.status}`;
@@ -1083,7 +1144,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
         ['✕', 'Version aus der Setlist entfernen', () => removeRange(i, 1)],
       ]),
     );
-    row.onclick = () => loadSong(i);
+    wireSelect(row, i);
     row.oncontextmenu = (e) => {
       e.preventDefault();
       startRename(i);
@@ -1097,6 +1158,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     if (!songs.length && !emptyFolders.length) {
       songsEl.innerHTML =
         '<div class="ka-empty"><b>Keine Songs in der Setlist</b>LRC-Dateien hierhin ziehen oder „+ Songs hinzufügen“</div>';
+      renderSelInfo();
       return;
     }
     for (let i = 0; i < songs.length; ) {
@@ -1112,6 +1174,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
       i = r.end + 1;
     }
     for (const g of emptyFolders) songsEl.appendChild(emptyFolderRow(g));
+    renderSelInfo();
   }
 
   /** + Ordner: leeren Ordner anlegen und gleich benennen */
