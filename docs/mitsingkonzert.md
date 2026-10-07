@@ -15,9 +15,8 @@ Festival-Modi verhalten sich unverändert.
 - Layout: aktuelle Zeile groß (Weiß, bis zu zwei Reihen), darunter die
   nächsten zwei Zeilen kleiner und gedimmt. Beim Weiterschalten rutscht
   alles einen Platz nach oben.
-- Trenner: Hat eine Vorschauzeile eine `{Sprungmarke}`, steht deren Name
-  als „── REFRAIN ──“ in BAYERN-1-Blau darüber. Kommt automatisch aus den
-  vorhandenen Sprungmarken, keine extra Pflege.
+- Sprungmarken (`{Refrain}`, `{Chorus}` …) erscheinen NICHT auf der Wall,
+  nur für den Operator im Rundown und als Sprung-Buttons.
 - Lange Zeilen: Geteilt wird erst ab 56 Zeichen (Festival: 36), weil die
   Wall selbst auf zwei Reihen umbricht.
 - Notfall-Durchsage: statischer Text auf rotem Block, mittig (kein Laufband).

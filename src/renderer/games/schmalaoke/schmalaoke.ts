@@ -121,10 +121,9 @@ const NOTICE_BAR_H = 120;
  * und gedimmt — das Publikum sieht, was kommt, und bleibt nicht an einer
  * Zeile hängen, falls der Operator mal knapp weiterschaltet. Beim
  * Weiterschalten rutschen alle Zeilen einen Platz nach oben (Größe und
- * Deckkraft gleiten mit), unten blendet die nächste ein. Hat eine
- * Vorschauzeile eine {Sprungmarke}, steht deren Name als kleiner Trenner
- * darüber („── REFRAIN ──“) — so sieht man den Wechsel in den nächsten
- * Block kommen. In der aktuellen Zeile verschwindet der Trenner.
+ * Deckkraft gleiten mit), unten blendet die nächste ein. Sprungmarken
+ * ({Refrain} usw.) erscheinen bewusst NICHT auf der Wall — die sieht nur
+ * der Operator im Rundown.
  *
  * Eine Zeile bricht auf höchstens zwei Reihen um (an der ausgewogensten
  * Wortgrenze) und schrumpft erst danach. Gesetzt wird in Referenzgröße
@@ -136,13 +135,8 @@ const MK_REF_SIZE = 112;
 const MK_LINE_H = 1.1;
 /** Nutzbreite für den Text (Rand links/rechts je 96 px) */
 const MK_MAX_W = MK_W - 2 * 96;
-/** Lyrics in Weiß, Trenner im BAYERN-1-Blau */
+/** Lyrics in Weiß */
 const MK_TEXT = '#ffffff';
-const MK_ACCENT = '#00a0d5';
-/** Trenner: Schriftgröße (in Referenz-px, skaliert mit dem Platz) und
- *  Abstand über der Oberkante der Zeile */
-const MK_LABEL_SIZE = 64;
-const MK_LABEL_GAP = 58;
 /** Plätze: -1 = gerade oben raus, 0 = aktuell, 1/2 = Vorschau, 3 = kommt
  *  unten rein. y = Mitte der Zeile in View-Koordinaten. Zwischen den
  *  Plätzen wird linear interpoliert (die Bewegung selbst ist geeast). */
@@ -251,8 +245,6 @@ export class Schmalaoke implements Game {
   private b1 = false;
   /** Mitsingkonzert: quadratische View, Drei-Zeilen-Layout */
   private mk = false;
-  /** Sprungmarke pro Zeile ({Name}) — für die Trenner im Mitsingkonzert */
-  private sections: Array<string | null> = [];
   /** Mitsingkonzert-Scroll: angezeigte Zeilenposition gleitet von
    *  mkFrom zu currentLine (Start mkT0) */
   private mkFrom = 0;
@@ -651,7 +643,7 @@ export class Schmalaoke implements Game {
       return;
     }
     if (this.errorText) {
-      this.drawMkLine(g, this.errorText, null, 0);
+      this.drawMkLine(g, this.errorText, 0);
       return;
     }
     if (!this.lyricsModeStarted || this.songEndedDisplayed) return;
@@ -666,7 +658,7 @@ export class Schmalaoke implements Game {
     const first = Math.max(0, Math.floor(pos) - 1);
     const last = Math.min(this.lines.length - 1, Math.ceil(pos) + MK_SLOTS.length - 2);
     for (let i = first; i <= last; i++) {
-      this.drawMkLine(g, this.lines[i], this.sections[i] ?? null, i - pos);
+      this.drawMkLine(g, this.lines[i], i - pos);
     }
   }
 
@@ -691,7 +683,7 @@ export class Schmalaoke implements Game {
   }
   /** Eine Zeile auf Platz-Position slot (0 = aktuell, 1/2 = Vorschau,
    *  Zwischenwerte während der Bewegung) */
-  private drawMkLine(g: CanvasRenderingContext2D, text: string, section: string | null, slot: number) {
+  private drawMkLine(g: CanvasRenderingContext2D, text: string, slot: number) {
     const sp = slot + 1; // Index in MK_SLOTS (Platz -1 liegt bei 0)
     if (sp < 0 || sp > MK_SLOTS.length - 1) return;
     const i0 = Math.floor(sp);
@@ -715,17 +707,6 @@ export class Schmalaoke implements Game {
     g.translate(MK_W / 2, y);
     g.scale(k, k);
 
-    // Trenner nur in der Vorschau: blendet beim Hochrutschen auf Platz 0
-    // aus. Er bleibt kräftig, auch wenn die Zeile selbst gedimmt ist — nur
-    // beim Reinkommen von unten blendet er mit der Zeile ein.
-    if (section) {
-      const la = Math.min(1, Math.max(0, slot)) * Math.min(1, alpha / MK_SLOTS[3].alpha);
-      if (la > 0.01) {
-        const top = -(n * rowH * lay.fit) / 2;
-        this.drawMkLabel(g, section, top - MK_LABEL_GAP, la);
-      }
-    }
-
     g.scale(lay.fit, lay.fit);
     g.fillStyle = MK_TEXT;
     lay.rows.forEach((row, r) => {
@@ -738,27 +719,6 @@ export class Schmalaoke implements Game {
         x += row.widths[j];
       });
     });
-    g.restore();
-  }
-
-  /** Trenner „── NAME ──“ zentriert auf Höhe y (lokale Koordinaten),
-   *  alpha absolut (unabhängig von der Deckkraft der Zeile) */
-  private drawMkLabel(g: CanvasRenderingContext2D, name: string, y: number, alpha: number) {
-    const label = name.toUpperCase();
-    g.save();
-    g.globalAlpha = alpha;
-    g.fillStyle = MK_ACCENT;
-    g.font = `800 ${MK_LABEL_SIZE}px 'TheSans', system-ui, sans-serif`;
-    g.letterSpacing = `${Math.round(MK_LABEL_SIZE * 0.12)}px`;
-    const w = g.measureText(label).width;
-    g.textAlign = 'center';
-    g.fillText(label, 0, y);
-    // Linien links und rechts vom Namen
-    const gap = MK_LABEL_SIZE * 0.6;
-    const len = MK_LABEL_SIZE * 2.4;
-    const h = Math.max(4, MK_LABEL_SIZE * 0.08);
-    g.fillRect(-w / 2 - gap - len, y - h / 2, len, h);
-    g.fillRect(w / 2 + gap, y - h / 2, len, h);
     g.restore();
   }
 
@@ -917,7 +877,6 @@ export class Schmalaoke implements Game {
     this.errorText = null;
     this.endTimer = -1;
     this.sprites = [];
-    this.sections = [];
     this.mkLayouts.clear();
     this.mkT0 = -1;
     this.beatCounts = [];
@@ -935,7 +894,6 @@ export class Schmalaoke implements Game {
       return;
     }
     this.lines = [...this.parser.lyricsLines];
-    this.sections = [...this.parser.sections];
     this.beatCounts = [...this.parser.beatCounts];
     this.autoCapable = this.parser.beatTagged.some(Boolean);
     this.refBpm = this.parser.refBpm;
