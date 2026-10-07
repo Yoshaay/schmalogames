@@ -17,6 +17,16 @@ interface Song {
   label?: string;
   /** Teilungsgrenze beim Parsen — geht mit an die Wall (gleiche Zeilen) */
   maxChars: number;
+  /** Ordner-Key: Versionen desselben Songs teilen ihn (aus dem Dateinamen
+   *  ohne Versions-Kürzel); 'f:…' = händischer Ordner, 's:…' = aus einem
+   *  Ordner herausgezogen */
+  group: string;
+  /** Dateiname ohne Versions-Kürzel und .lrc — Name des Ordners */
+  base: string;
+  /** Versions-Kürzel aus dem Dateinamen ('V2', 'V4.1'; '' = Original) */
+  version: string;
+  /** In seinem Ordner gewählte Version (N/B laden diese) */
+  pick?: boolean;
   title: string;
   artist: string;
   lines: string[];
@@ -110,6 +120,47 @@ const STYLE = `
   .dot-playing { background: var(--primary-bright); }
   .dot-finished { background: #2699d6; }
   .ka-song .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Leiste über der Setlist (+ Ordner) */
+  .ka-listbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .ka-listbar .ka-head { margin-top: 0; }
+  .ka-root button.ka-mini { height: 24px; padding: 0 9px; font-size: 11px; }
+  /* Ordner: Kopf mit Pfeil, gewählter Version und Anzahl; Versionen eingerückt */
+  /* Ordner-Kopf: eigene Fläche, Ordner-Symbol, großer Pfeil — klar
+     unterscheidbar von normalen Song-Zeilen */
+  .ka-song.ka-folder { background: #1a1d26; border-bottom-color: #262a35; padding-left: 6px; }
+  .ka-song.ka-folder:hover { background: #20242f; }
+  .ka-song.ka-folder.open { border-bottom-color: transparent; }
+  .ka-folder .chev {
+    width: 22px; height: 22px; flex-shrink: 0; display: grid; place-items: center;
+    border-radius: 4px; color: var(--ink); transition: transform 0.15s;
+  }
+  .ka-folder .chev svg { width: 14px; height: 14px; }
+  .ka-folder.open .chev { transform: rotate(90deg); }
+  .ka-folder:hover .chev { background: rgba(255, 255, 255, 0.07); }
+  .ka-folder .ficon { width: 18px; height: 18px; flex-shrink: 0; color: var(--primary); }
+  .ka-folder .name { font-weight: 700; }
+  .ka-vtag {
+    flex-shrink: 0; font-family: var(--font-mono); font-size: 10px; color: var(--primary);
+    border: 1px solid rgba(var(--primary-rgb), 0.4); border-radius: 3px; padding: 0 5px;
+  }
+  .ka-vcount { flex-shrink: 0; font-family: var(--font-mono); font-size: 10px; color: var(--ink-dim); }
+  /* Versionen: eingerückt mit Führungslinie in Ordnerfarbe */
+  .ka-version { padding-left: 40px; background: #0d0f14; position: relative; }
+  .ka-version::before {
+    content: ''; position: absolute; left: 16px; top: 0; bottom: 0; width: 2px;
+    background: rgba(var(--primary-rgb), 0.25);
+  }
+  /* Gewählte Version: Name in Akzentfarbe + Balken links */
+  .ka-version.picked { box-shadow: inset 3px 0 0 var(--primary); }
+  .ka-version.picked .name { color: var(--primary); font-weight: 600; }
+  .ka-vinfo {
+    flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-family: var(--font-mono); font-size: 10px; color: var(--ink-dim);
+  }
+  .ka-version .name { flex: 0 0 auto; max-width: 60%; }
+  .ka-vtag { max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ka-empty-folder { color: var(--ink-dim); border-style: dashed; }
+  .ka-song.drop-into { box-shadow: inset 0 0 0 2px var(--primary); background: rgba(var(--primary-rgb), 0.08); }
   /* Eigener Name: kursiv, damit man sieht, dass er nicht aus der LRC kommt */
   .ka-song .name.custom { font-style: italic; }
   .ka-song input.ka-rename {
@@ -252,7 +303,10 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     <div class="ka-root">
       <div class="ka-cols">
         <div class="ka-col">
-          <div class="ka-head">Setlist</div>
+          <div class="ka-listbar">
+            <span class="ka-head">Setlist</span>
+            <button data-id="addfolder" class="ka-mini" title="Leeren Ordner anlegen — Songs per Drag &amp; Drop hineinziehen (Mitte eines Ordners = hinein)">+ Ordner</button>
+          </div>
           <div class="ka-list" data-id="songs"></div>
           <button data-id="add" class="ka-btn-primary">+ Songs hinzufügen</button>
           <div class="ka-grid2">
@@ -347,6 +401,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
       name,
       content,
       maxChars,
+      ...fromFileName(name),
       title: p.metadata.ti || name.replace(/\.lrc$/i, ''),
       artist: p.metadata.ar || '',
       lines: ok ? [...p.lyricsLines] : [],
@@ -367,7 +422,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
   async function addFiles(files: FileList | File[]) {
     for (const file of Array.from(files)) {
       if (!/\.lrc$/i.test(file.name)) continue;
-      songs.push(songFromContent(file.name, await file.text()));
+      insertSong(songFromContent(file.name, await file.text()));
     }
     renderSongs();
   }
@@ -390,7 +445,15 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     const data = {
       type: 'schmalaoke-setlist',
       version: 2,
-      songs: songs.map((s) => ({ name: s.name, content: s.content, ...(s.label ? { label: s.label } : {}) })),
+      songs: songs.map((s) => ({
+        name: s.name,
+        content: s.content,
+        group: s.group,
+        ...(s.pick ? { pick: true } : {}),
+        ...(s.label ? { label: s.label } : {}),
+      })),
+      folders: Object.fromEntries(groupNames),
+      emptyFolders,
     };
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
@@ -407,7 +470,9 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     try {
       const data = JSON.parse(await file.text()) as {
         type?: string;
-        songs?: Array<{ name?: string; content?: string; filepath?: string; label?: string }>;
+        songs?: Array<{ name?: string; content?: string; filepath?: string; label?: string; group?: string; pick?: boolean }>;
+        folders?: Record<string, string>;
+        emptyFolders?: string[];
       };
       if (data?.type !== 'schmalaoke-setlist' || !Array.isArray(data.songs)) throw new Error('kein Setlist-Format');
       if (!data.songs.every((s) => typeof s?.content === 'string')) {
@@ -416,11 +481,19 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
         return;
       }
       songs.length = 0;
+      groupNames.clear();
+      openGroups.clear();
+      emptyFolders.length = 0;
       for (const s of data.songs) {
         const song = songFromContent(String(s.name ?? 'Song.lrc'), s.content!);
         if (typeof s.label === 'string' && s.label.trim()) song.label = s.label.trim();
+        // Gespeicherte Ordner-Zuordnung (inkl. händischer Ordner) hat Vorrang
+        if (typeof s.group === 'string' && s.group) song.group = s.group;
+        song.pick = s.pick === true;
         songs.push(song);
       }
+      for (const [g, n] of Object.entries(data.folders ?? {})) if (typeof n === 'string') groupNames.set(g, n);
+      for (const g of data.emptyFolders ?? []) if (typeof g === 'string' && groupNames.has(g)) emptyFolders.push(g);
       activeIndex = -1;
       presenter = null;
       api.send({ cmd: 'reset' });
@@ -450,19 +523,138 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     }
   });
 
-  /* ---------- Drag & Drop: Songs umsortieren ---------- */
-  let dragFrom = -1;
+  /* ---------- Ordner: Versionen eines Songs ----------
+     Die Liste bleibt flach; Versionen desselben Songs (gleicher group-Key
+     aus dem Dateinamen) liegen direkt hintereinander und bilden einen
+     Ordner („Run“). Pro Ordner ist genau eine Version gewählt (pick) — N/B
+     springen von Ordner zu Ordner und laden die gewählte Version. Ein
+     Ordner mit nur einer Version wird als normale Zeile gezeigt. */
+  /** Aufgeklappte Ordner (group-Keys); neue Ordner starten zugeklappt */
+  const openGroups = new Set<string>();
+  /** Eigene Ordnernamen (Umbenennen bzw. händisch angelegte Ordner) */
+  const groupNames = new Map<string, string>();
+  /** Händisch angelegte, noch leere Ordner — stehen unten in der Liste,
+   *  bis der erste Song hineingezogen wird */
+  const emptyFolders: string[] = [];
+  /** Händische Ordner (+ Ordner) sind auch mit nur einem Song ein Ordner */
+  const isManual = (group: string) => group.startsWith('f:');
+  const uid = () => Math.random().toString(36).slice(2, 9);
+  const folderName = (group: string, fallback: string) => groupNames.get(group) ?? fallback;
 
-  function moveSongTo(from: number, insertAt: number) {
-    // insertAt = Einfügeposition in der Liste VOR dem Entfernen
-    const to = insertAt > from ? insertAt - 1 : insertAt;
-    if (from === to) return;
-    const [song] = songs.splice(from, 1);
-    songs.splice(to, 0, song);
-    if (activeIndex === from) activeIndex = to;
-    else if (from < activeIndex && to >= activeIndex) activeIndex--;
-    else if (from > activeIndex && to <= activeIndex) activeIndex++;
+  function runOf(i: number): { start: number; end: number } {
+    let start = i;
+    let end = i;
+    while (start > 0 && songs[start - 1].group === songs[i].group) start--;
+    while (end < songs.length - 1 && songs[end + 1].group === songs[i].group) end++;
+    return { start, end };
+  }
+
+  /** Gewählte Version eines Ordners (Index) */
+  function pickedOf(i: number): number {
+    const r = runOf(i);
+    for (let k = r.start; k <= r.end; k++) if (songs[k].pick) return k;
+    return r.start;
+  }
+
+  /** Genau eine gewählte Version pro Ordner (sonst die erste) */
+  function normalizePicks() {
+    for (let i = 0; i < songs.length; ) {
+      const r = runOf(i);
+      let seen = false;
+      for (let k = r.start; k <= r.end; k++) {
+        if (songs[k].pick && !seen) seen = true;
+        else songs[k].pick = false;
+      }
+      if (!seen) songs[r.start].pick = true;
+      i = r.end + 1;
+    }
+  }
+
+  /** Neuen Song einsortieren: in einen vorhandenen Ordner nach Version
+   *  (Original, V2, V3 … V10), sonst ans Ende */
+  function insertSong(song: Song) {
+    const at = songs.findIndex((s) => s.group === song.group);
+    let pos = songs.length;
+    if (at >= 0) {
+      const r = runOf(at);
+      pos = r.end + 1;
+      for (let k = r.start; k <= r.end; k++) {
+        if (compareVersions(song.version, songs[k].version) < 0) {
+          pos = k;
+          break;
+        }
+      }
+    }
+    songs.splice(pos, 0, song);
+    if (activeIndex >= pos) activeIndex++;
+    if (renaming >= pos) renaming++;
+  }
+
+  /* ---------- Drag & Drop: Songs umsortieren ----------
+     Quelle: ganzer Ordner (Kopf) bzw. einzelner Song, oder eine Version.
+     Ziel: obere/untere Zeilenhälfte = davor/dahinter (ganze Ordner rasten
+     an Ordnergrenzen ein), Mitte eines Ordner-Kopfs = hinein. Eine
+     Version, die außerhalb eines Ordners landet, wird zum einzelnen Song. */
+  interface DragSrc {
+    start: number;
+    count: number;
+    /** true = einzelner Song/Version (darf in Ordner hinein/heraus) */
+    item: boolean;
+  }
+  interface DropPlan {
+    insertAt: number;
+    /** neuer group-Key der verschobenen Songs (undefined = bleibt) */
+    group?: string;
+    /** Zeile, an der der Drop-Hinweis erscheint */
+    mark: 'above' | 'below' | 'into';
+  }
+  let drag: DragSrc | null = null;
+
+  /** Steckt Index i in einem (sichtbaren) Ordner? */
+  const inFolder = (i: number) => {
+    const r = runOf(i);
+    return r.end > r.start || isManual(songs[i].group);
+  };
+
+  /** Bereich [start, start+count) vor die Einfügeposition insertAt
+   *  (Index VOR dem Entfernen) verschieben, ggf. Ordner wechseln */
+  function moveRange(start: number, count: number, insertAt: number, group?: string) {
+    const moved = songs.splice(start, count);
+    if (group !== undefined) for (const m of moved) m.group = group;
+    let to = insertAt > start ? insertAt - count : insertAt;
+    if (insertAt > start && insertAt < start + count) to = start; // auf sich selbst
+    to = Math.max(0, Math.min(to, songs.length));
+    songs.splice(to, 0, ...moved);
+    const remap = (i: number) => {
+      if (i < 0) return i;
+      if (i >= start && i < start + count) return to + (i - start);
+      let k = i > start ? i - count : i;
+      if (k >= to) k += count;
+      return k;
+    };
+    activeIndex = remap(activeIndex);
     renderSongs();
+  }
+
+  /** Was passiert beim Loslassen über Zeile i (kind = Zeilentyp)? */
+  function planDrop(i: number, kind: 'song' | 'folder' | 'version', zone: 'top' | 'mid' | 'bottom'): DropPlan | null {
+    if (!drag) return null;
+    const src = drag;
+    const r = runOf(i);
+    // Eine Version, die einen Ordner verlässt, bekommt einen eigenen Key
+    const leaving = src.item && inFolder(src.start) ? `s:${uid()}` : undefined;
+    if (kind === 'folder') {
+      const g = songs[r.start].group;
+      if (zone === 'mid' && src.item && songs[src.start].group !== g) return { insertAt: r.end + 1, group: g, mark: 'into' };
+      if (zone === 'top') return { insertAt: r.start, group: leaving, mark: 'above' };
+      return { insertAt: r.end + 1, group: leaving, mark: 'below' };
+    }
+    if (kind === 'version') {
+      const g = songs[i].group;
+      if (!src.item) return zone === 'top' && i === r.start ? { insertAt: r.start, mark: 'above' } : { insertAt: r.end + 1, mark: 'below' };
+      return zone === 'top' ? { insertAt: i, group: g, mark: 'above' } : { insertAt: i + 1, group: g, mark: 'below' };
+    }
+    return zone === 'top' ? { insertAt: i, group: leaving, mark: 'above' } : { insertAt: i + 1, group: leaving, mark: 'below' };
   }
 
   function loadSong(index: number) {
@@ -473,14 +665,21 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
       const old = songs[index];
       songs[index] = songFromContent(old.name, old.content, old.status);
       songs[index].label = old.label;
+      songs[index].pick = old.pick;
+      songs[index].group = old.group;
     }
     const song = songs[index];
     if (!song || !song.lines.length) return;
+    // Laden = diese Version im Ordner wählen
+    const r = runOf(index);
+    for (let k = r.start; k <= r.end; k++) songs[k].pick = k === index;
     // vorherigen loaded-Song zurücksetzen (falls nicht schon gespielt)
     songs.forEach((s, i) => {
       if (i !== index && s.status === 'loaded') s.status = 'planned';
     });
     activeIndex = index;
+    setlistEnd = false;
+    lastSongHint = false;
     song.status = 'loaded';
     api.send({ cmd: 'song', name: song.name, content: song.content, maxChars: song.maxChars });
     renderSongs();
@@ -488,28 +687,76 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     renderLyrics();
   }
 
-  q('next').onclick = () => {
-    if (activeIndex < songs.length - 1) {
-      if (activeIndex >= 0) songs[activeIndex].status = 'finished';
-      loadSong(activeIndex + 1);
-    } else {
-      api.send({ cmd: 'nextsong' });
-    }
-  };
-
-  /** Voriger Song (Taste B): lädt den Song davor — er startet wie jeder
-   *  geladene Song erst mit der Leertaste. Der verlassene Song gilt wieder
-   *  als geplant, außer er war schon durchgespielt. */
-  function prevSong() {
-    if (activeIndex <= 0) return;
-    const cur = songs[activeIndex];
-    if (cur.status !== 'finished') cur.status = 'planned';
-    loadSong(activeIndex - 1);
+  /** Nächster Ordner/Song (Taste N, Auto-Next): gewählte Version laden.
+   *  false = es gibt keinen weiteren. */
+  function nextSong(): boolean {
+    const from = activeIndex >= 0 ? runOf(activeIndex).end + 1 : 0;
+    if (from >= songs.length) return false;
+    loadSong(pickedOf(from));
+    return true;
   }
 
-  /** Anzeigename: eigener Name, sonst „Interpret – Titel“ aus der LRC */
-  const autoName = (song: Song) => (song.artist ? `${song.artist} – ${song.title}` : song.title);
+  /** Hinter dem letzten Ordner gibt es nichts mehr: Statuszeile sagt es
+   *  deutlich, statt dass die Wall still leer bleibt */
+  let setlistEnd = false;
+  /** Kurzer Hinweis „letzter Song“ nach N am Listenende (Mitsingkonzert) */
+  let lastSongHint = false;
+  let lastSongTimer = -1;
+
+  q('next').onclick = () => {
+    // Mitsingkonzert: am letzten Song tut N NICHTS — ein Druck zu viel
+    // soll live nicht die Wall leer machen. Der Song läuft weiter.
+    if (mk && activeIndex >= 0 && runOf(activeIndex).end >= songs.length - 1) {
+      lastSongHint = true;
+      updateMeta();
+      clearTimeout(lastSongTimer);
+      lastSongTimer = window.setTimeout(() => {
+        lastSongHint = false;
+        updateMeta();
+      }, 3000);
+      return;
+    }
+    if (activeIndex >= 0) songs[activeIndex].status = 'finished';
+    if (!nextSong()) {
+      setlistEnd = true;
+      api.send({ cmd: 'nextsong' });
+    }
+    renderSongs();
+    updateMeta();
+  };
+
+  /** Voriger Song (Taste B): lädt die gewählte Version des Ordners davor —
+   *  sie startet wie jeder geladene Song erst mit der Leertaste. Der
+   *  verlassene Song gilt wieder als geplant, außer er war durchgespielt. */
+  function prevSong() {
+    if (activeIndex < 0) return;
+    const r = runOf(activeIndex);
+    if (r.start <= 0) return;
+    const cur = songs[activeIndex];
+    if (cur.status !== 'finished') cur.status = 'planned';
+    loadSong(pickedOf(r.start - 1));
+  }
+
+  /** Anzeigename: eigener Name, sonst „Interpret – Titel“ aus der LRC
+   *  (plus Version, damit gleiche [ti:]-Tags unterscheidbar bleiben) */
+  const autoName = (song: Song) => {
+    // Viele LRCs haben den Interpreten schon im [ti:] — dann nicht doppeln
+    const hasArtist = song.artist && !song.title.toLowerCase().includes(song.artist.toLowerCase());
+    return (hasArtist ? `${song.artist} – ${song.title}` : song.title) + (song.version ? ` · ${song.version}` : '');
+  };
   const displayName = (song: Song) => song.label || autoName(song);
+  /** Steckt der Song in „seinem“ Ordner (gleicher Dateiname-Stamm)? Sonst
+   *  (händischer Ordner) hilft das Versions-Kürzel allein nicht weiter */
+  const ownFolder = (song: Song) => song.group === fromFileName(song.name).group;
+  /** Name einer Version im aufgeklappten Ordner */
+  const versionAuto = (song: Song) => (ownFolder(song) ? song.version || 'Original' : autoName(song));
+  const versionName = (song: Song) => song.label || versionAuto(song);
+  /** Kurzinfo einer Version: Zeilen + Sprungmarken (zeigt, was drin ist) */
+  const versionInfo = (song: Song) => {
+    const marks = song.sections.filter((x): x is string => !!x);
+    const list = marks.slice(0, 4).join(', ') + (marks.length > 4 ? ` +${marks.length - 4}` : '');
+    return `${song.lines.length} Zeilen${list ? ` · ${list}` : ''}`;
+  };
 
   /* ---------- Umbenennen ----------
      ✎ in der Zeile oder Rechtsklick → Name wird zum Eingabefeld. Enter
@@ -528,128 +775,368 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     renaming = -1;
     if (value !== null && songs[i]) {
       const v = value.trim();
-      songs[i].label = v && v !== autoName(songs[i]) ? v : undefined;
+      const r = runOf(i);
+      const auto = r.end > r.start || isManual(songs[i].group) ? versionAuto(songs[i]) : autoName(songs[i]);
+      songs[i].label = v && v !== auto ? v : undefined;
     }
     renderSongs();
   }
 
+  /** Ordner umbenennen (Kopf): eigener Name statt des Dateinamens */
+  let renamingGroup: string | null = null;
+
+  function startRenameGroup(group: string) {
+    renamingGroup = group;
+    renderSongs(true);
+  }
+
+  function finishRenameGroup(group: string, value: string | null) {
+    if (renamingGroup !== group) return;
+    renamingGroup = null;
+    if (value !== null) {
+      const v = value.trim();
+      if (v) groupNames.set(group, v);
+      else if (!isManual(group)) groupNames.delete(group);
+    }
+    renderSongs();
+  }
+
+  /** Name im Ordner-Kopf (bzw. Eingabefeld beim Umbenennen) */
+  function folderNameEl(group: string, fallback: string): HTMLElement {
+    const text = folderName(group, fallback);
+    if (renamingGroup === group) {
+      const input = document.createElement('input');
+      input.className = 'name ka-rename';
+      input.value = text;
+      input.placeholder = fallback;
+      input.onclick = (e) => e.stopPropagation();
+      input.onkeydown = (e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') finishRenameGroup(group, input.value);
+        else if (e.key === 'Escape') finishRenameGroup(group, null);
+      };
+      input.onblur = () => finishRenameGroup(group, input.value);
+      requestAnimationFrame(() => {
+        input.focus();
+        input.select();
+      });
+      return input;
+    }
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = text;
+    if (groupNames.has(group) && !isManual(group)) name.classList.add('custom');
+    return name;
+  }
+
+  /** Namensfeld einer Zeile: Text oder (beim Umbenennen) Eingabefeld */
+  function nameEl(i: number, text: string, auto: string, tooltip: string, row: HTMLElement): HTMLElement {
+    const song = songs[i];
+    if (i === renaming) {
+      const input = document.createElement('input');
+      input.className = 'name ka-rename';
+      input.value = text;
+      input.placeholder = auto;
+      input.title = 'Enter übernimmt · Esc bricht ab · leer = Name aus der LRC';
+      input.onclick = (e) => e.stopPropagation();
+      input.onkeydown = (e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') finishRename(i, input.value);
+        else if (e.key === 'Escape') finishRename(i, null);
+      };
+      input.onblur = () => finishRename(i, input.value);
+      row.draggable = false;
+      requestAnimationFrame(() => {
+        input.focus();
+        input.select();
+      });
+      return input;
+    }
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = text;
+    name.title = tooltip;
+    if (song.label) name.classList.add('custom');
+    return name;
+  }
+
+  function opsEl(items: Array<[string, string, () => void]>): HTMLElement {
+    const ops = document.createElement('span');
+    ops.className = 'ops';
+    for (const [label, tip, fn] of items) {
+      const btn = document.createElement('button');
+      btn.textContent = label;
+      btn.title = tip;
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        fn();
+      };
+      ops.appendChild(btn);
+    }
+    return ops;
+  }
+
+  function warnEl(song: Song): HTMLElement | null {
+    if (song.validation.level === 'ok') return null;
+    // Mitsingkonzert läuft von Hand — Beat-Tag-Hinweise wären nur Rauschen
+    if (mk && song.validation.level === 'warn') return null;
+    const warn = document.createElement('span');
+    warn.className = 'warn';
+    warn.textContent = song.validation.level === 'error' ? '🛑' : '⚠️';
+    warn.title = song.validation.warnings.join('\n');
+    return warn;
+  }
+
+  const zoneOf = (row: HTMLElement, e: DragEvent): 'top' | 'mid' | 'bottom' => {
+    const rect = row.getBoundingClientRect();
+    const f = (e.clientY - rect.top) / rect.height;
+    return f < 0.3 ? 'top' : f > 0.7 ? 'bottom' : 'mid';
+  };
+  const clearMarks = () =>
+    songsEl.querySelectorAll('.ka-song').forEach((r) => r.classList.remove('drop-above', 'drop-below', 'drop-into'));
+
+  /** Drag-Quelle + Drop-Ziel an eine Zeile hängen */
+  function wireDrag(row: HTMLElement, i: number, kind: 'song' | 'folder' | 'version', source: DragSrc) {
+    row.draggable = true;
+    row.addEventListener('dragstart', (e) => {
+      e.stopPropagation();
+      drag = source;
+      row.classList.add('dragging');
+      e.dataTransfer?.setData('text/plain', String(i));
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+    });
+    row.addEventListener('dragend', () => {
+      drag = null;
+      songsEl.querySelectorAll('.ka-song').forEach((r) => r.classList.remove('dragging'));
+      clearMarks();
+    });
+    row.addEventListener('dragover', (e) => {
+      if (!drag) return; // Datei-Drags behandelt der Container
+      const plan = planDrop(i, kind, zoneOf(row, e));
+      row.classList.remove('drop-above', 'drop-below', 'drop-into');
+      if (!plan) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+      row.classList.add(`drop-${plan.mark}`);
+    });
+    row.addEventListener('dragleave', () => row.classList.remove('drop-above', 'drop-below', 'drop-into'));
+    row.addEventListener('drop', (e) => {
+      if (!drag) return;
+      e.preventDefault();
+      e.stopPropagation(); // nicht als Datei-Drop im Container behandeln
+      const plan = planDrop(i, kind, zoneOf(row, e));
+      const src = drag;
+      drag = null;
+      clearMarks();
+      if (!plan) return;
+      if (plan.group !== undefined) openGroups.add(plan.group);
+      moveRange(src.start, src.count, plan.insertAt, plan.group);
+    });
+  }
+
+  const SVG_CHEV = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3l5 5-5 5"/></svg>';
+  const SVG_FOLDER = '<svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 5.5A1.5 1.5 0 0 1 3.5 4h4l1.6 1.8h7.4A1.5 1.5 0 0 1 18 7.3v7.2a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 2 14.5z"/></svg>';
+  /** Aufklapp-Pfeil (dreht sich per CSS, wenn der Ordner offen ist) */
+  function chevEl(): HTMLElement {
+    const chev = document.createElement('span');
+    chev.className = 'chev';
+    chev.innerHTML = SVG_CHEV;
+    return chev;
+  }
+  function folderIcon(): HTMLElement {
+    const icon = document.createElement('span');
+    icon.className = 'ficon';
+    icon.innerHTML = SVG_FOLDER;
+    return icon;
+  }
+
+  /** Leerer händischer Ordner: Ablagefläche, Songs landen ans Listenende */
+  function emptyFolderRow(group: string): HTMLElement {
+    const row = document.createElement('div');
+    row.className = 'ka-song ka-folder ka-empty-folder';
+    const chev = chevEl();
+    const hint = document.createElement('span');
+    hint.className = 'ka-vinfo';
+    hint.textContent = 'leer — Songs hierher ziehen';
+    row.append(chev, folderIcon(), folderNameEl(group, 'Neuer Ordner'), hint);
+    row.appendChild(
+      opsEl([
+        ['✎', 'Ordner umbenennen (Rechtsklick)', () => startRenameGroup(group)],
+        ['✕', 'Leeren Ordner entfernen', () => {
+          emptyFolders.splice(emptyFolders.indexOf(group), 1);
+          groupNames.delete(group);
+          renderSongs();
+        }],
+      ]),
+    );
+    row.oncontextmenu = (e) => {
+      e.preventDefault();
+      startRenameGroup(group);
+    };
+    row.addEventListener('dragover', (e) => {
+      if (!drag) return;
+      e.preventDefault();
+      row.classList.add('drop-into');
+    });
+    row.addEventListener('dragleave', () => row.classList.remove('drop-into'));
+    row.addEventListener('drop', (e) => {
+      if (!drag) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const src = drag;
+      drag = null;
+      clearMarks();
+      emptyFolders.splice(emptyFolders.indexOf(group), 1);
+      openGroups.add(group);
+      moveRange(src.start, src.count, songs.length, group);
+    });
+    return row;
+  }
+
+  /** Normale Zeile (Song mit einer Version) */
+  function songRow(i: number): HTMLElement {
+    const song = songs[i];
+    const row = document.createElement('div');
+    row.className = 'ka-song' + (i === activeIndex ? ' active' : '');
+    wireDrag(row, i, 'song', { start: i, count: 1, item: true });
+    const dot = document.createElement('span');
+    dot.className = `dot dot-${song.status}`;
+    const tip = [song.label ? `Eigener Name · LRC: ${autoName(song)}` : '', `Datei: ${song.name}`, ...song.validation.warnings]
+      .filter(Boolean)
+      .join('\n');
+    row.append(dot, nameEl(i, displayName(song), autoName(song), tip, row));
+    const warn = warnEl(song);
+    if (warn) row.appendChild(warn);
+    row.appendChild(
+      opsEl([
+        ['✎', 'Umbenennen (Rechtsklick)', () => startRename(i)],
+        ['✕', 'Aus der Setlist entfernen', () => removeRange(i, 1)],
+      ]),
+    );
+    row.onclick = () => loadSong(i);
+    row.oncontextmenu = (e) => {
+      e.preventDefault();
+      startRename(i);
+    };
+    return row;
+  }
+
+  /** Ordner-Kopf: Klick klappt auf/zu, zeigt die gewählte Version */
+  function folderRow(start: number, end: number): HTMLElement {
+    const song = songs[start];
+    const picked = pickedOf(start);
+    const open = openGroups.has(song.group);
+    const holdsActive = activeIndex >= start && activeIndex <= end;
+    const row = document.createElement('div');
+    row.className = 'ka-song ka-folder' + (holdsActive ? ' active' : '') + (open ? ' open' : '');
+    wireDrag(row, start, 'folder', { start, count: end - start + 1, item: false });
+    const chev = chevEl();
+    const dot = document.createElement('span');
+    dot.className = `dot dot-${songs[picked].status}`;
+    const name = folderNameEl(song.group, isManual(song.group) ? 'Ordner' : song.base);
+    name.title = `${end - start + 1} Versionen · gewählt: ${versionName(songs[picked])}\nKlick klappt auf/zu · Rechtsklick benennt um`;
+    const tag = document.createElement('span');
+    tag.className = 'ka-vtag';
+    tag.textContent = versionName(songs[picked]);
+    tag.title = 'Gewählte Version — N/B laden diese';
+    const count = document.createElement('span');
+    count.className = 'ka-vcount';
+    const n = end - start + 1;
+    count.textContent = isManual(song.group) ? `${n} Song${n === 1 ? '' : 's'}` : `${n} Vers.`;
+    row.append(chev, folderIcon(), dot, name, tag, count);
+    row.appendChild(
+      opsEl([
+        ['✎', 'Ordner umbenennen (Rechtsklick)', () => startRenameGroup(song.group)],
+        ['✕', 'Ordner mit allen Versionen aus der Setlist entfernen', () => removeRange(start, end - start + 1)],
+      ]),
+    );
+    row.oncontextmenu = (e) => {
+      e.preventDefault();
+      startRenameGroup(song.group);
+    };
+    row.onclick = () => {
+      if (open) openGroups.delete(song.group);
+      else openGroups.add(song.group);
+      renderSongs();
+    };
+    return row;
+  }
+
+  /** Version im aufgeklappten Ordner: Klick wählt sie und lädt sie */
+  function versionRow(i: number): HTMLElement {
+    const song = songs[i];
+    const row = document.createElement('div');
+    row.className = 'ka-song ka-version' + (i === activeIndex ? ' active' : '') + (song.pick ? ' picked' : '');
+    wireDrag(row, i, 'version', { start: i, count: 1, item: true });
+    const dot = document.createElement('span');
+    dot.className = `dot dot-${song.status}`;
+    const tip = [song.label ? `Eigener Name · Version: ${song.version || 'Original'}` : '', `Datei: ${song.name}`, ...song.validation.warnings]
+      .filter(Boolean)
+      .join('\n');
+    const info = document.createElement('span');
+    info.className = 'ka-vinfo';
+    info.textContent = versionInfo(song);
+    row.append(dot, nameEl(i, versionName(song), versionAuto(song), tip, row), info);
+    if (song.pick) row.title = 'Gewählte Version — N/B laden diese';
+    const warn = warnEl(song);
+    if (warn) row.appendChild(warn);
+    row.appendChild(
+      opsEl([
+        ['✎', 'Umbenennen (Rechtsklick)', () => startRename(i)],
+        ['✕', 'Version aus der Setlist entfernen', () => removeRange(i, 1)],
+      ]),
+    );
+    row.onclick = () => loadSong(i);
+    row.oncontextmenu = (e) => {
+      e.preventDefault();
+      startRename(i);
+    };
+    return row;
+  }
+
   function renderSongs(force = false) {
-    if (renaming >= 0 && !force) return;
+    if ((renaming >= 0 || renamingGroup !== null) && !force) return;
     songsEl.innerHTML = '';
-    if (!songs.length) {
+    if (!songs.length && !emptyFolders.length) {
       songsEl.innerHTML =
         '<div class="ka-empty"><b>Keine Songs in der Setlist</b>LRC-Dateien hierhin ziehen oder „+ Songs hinzufügen“</div>';
       return;
     }
-    songs.forEach((song, i) => {
-      const row = document.createElement('div');
-      row.className = 'ka-song' + (i === activeIndex ? ' active' : '');
-
-      // Umsortieren per Drag & Drop
-      row.draggable = true;
-      row.addEventListener('dragstart', (e) => {
-        dragFrom = i;
-        row.classList.add('dragging');
-        e.dataTransfer?.setData('text/plain', String(i));
-        if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
-      });
-      row.addEventListener('dragend', () => {
-        dragFrom = -1;
-        songsEl.querySelectorAll('.ka-song').forEach((r) => r.classList.remove('dragging', 'drop-above', 'drop-below'));
-      });
-      row.addEventListener('dragover', (e) => {
-        if (dragFrom < 0) return; // Datei-Drags behandelt der Container
-        e.preventDefault();
-        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-        const rect = row.getBoundingClientRect();
-        const below = e.clientY > rect.top + rect.height / 2;
-        row.classList.toggle('drop-above', !below);
-        row.classList.toggle('drop-below', below);
-      });
-      row.addEventListener('dragleave', () => row.classList.remove('drop-above', 'drop-below'));
-      row.addEventListener('drop', (e) => {
-        if (dragFrom < 0) return;
-        e.preventDefault();
-        e.stopPropagation(); // nicht als Datei-Drop im Container behandeln
-        const rect = row.getBoundingClientRect();
-        const below = e.clientY > rect.top + rect.height / 2;
-        moveSongTo(dragFrom, below ? i + 1 : i);
-        dragFrom = -1;
-      });
-      const dot = document.createElement('span');
-      dot.className = `dot dot-${song.status}`;
-      let name: HTMLElement;
-      if (i === renaming) {
-        const input = document.createElement('input');
-        input.className = 'name ka-rename';
-        input.value = displayName(song);
-        input.placeholder = autoName(song);
-        input.title = 'Enter übernimmt · Esc bricht ab · leer = Name aus der LRC';
-        input.onclick = (e) => e.stopPropagation();
-        input.onkeydown = (e) => {
-          e.stopPropagation();
-          if (e.key === 'Enter') finishRename(i, input.value);
-          else if (e.key === 'Escape') finishRename(i, null);
-        };
-        input.onblur = () => finishRename(i, input.value);
-        row.draggable = false;
-        name = input;
-        requestAnimationFrame(() => {
-          input.focus();
-          input.select();
-        });
+    normalizePicks();
+    for (let i = 0; i < songs.length; ) {
+      const r = runOf(i);
+      if (r.end === r.start && !isManual(songs[i].group)) {
+        songsEl.appendChild(songRow(i));
       } else {
-        name = document.createElement('span');
-        name.className = 'name';
-        name.textContent = displayName(song);
-        name.title = [song.label ? `Eigener Name · LRC: ${autoName(song)}` : '', `Datei: ${song.name}`, ...song.validation.warnings]
-          .filter(Boolean)
-          .join('\n');
-        if (song.label) name.classList.add('custom');
+        songsEl.appendChild(folderRow(r.start, r.end));
+        if (openGroups.has(songs[i].group)) {
+          for (let k = r.start; k <= r.end; k++) songsEl.appendChild(versionRow(k));
+        }
       }
-      row.append(dot, name);
-      if (song.validation.level !== 'ok') {
-        const warn = document.createElement('span');
-        warn.className = 'warn';
-        warn.textContent = song.validation.level === 'error' ? '🛑' : '⚠️';
-        warn.title = song.validation.warnings.join('\n');
-        row.appendChild(warn);
-      }
-      const ops = document.createElement('span');
-      ops.className = 'ops';
-      for (const [label, fn] of [
-        ['✎', () => startRename(i)],
-        ['✕', () => removeSong(i)],
-      ] as Array<[string, () => void]>) {
-        const btn = document.createElement('button');
-        btn.textContent = label;
-        btn.onclick = (e) => {
-          e.stopPropagation();
-          fn();
-        };
-        ops.appendChild(btn);
-      }
-      row.appendChild(ops);
-      row.onclick = () => loadSong(i);
-      row.oncontextmenu = (e) => {
-        e.preventDefault();
-        startRename(i);
-      };
-      songsEl.appendChild(row);
-    });
+      i = r.end + 1;
+    }
+    for (const g of emptyFolders) songsEl.appendChild(emptyFolderRow(g));
   }
 
-  function removeSong(i: number) {
-    songs.splice(i, 1);
-    if (activeIndex === i) {
+  /** + Ordner: leeren Ordner anlegen und gleich benennen */
+  q('addfolder').onclick = () => {
+    const g = `f:${uid()}`;
+    groupNames.set(g, 'Neuer Ordner');
+    emptyFolders.push(g);
+    startRenameGroup(g);
+  };
+
+  function removeRange(start: number, count: number) {
+    songs.splice(start, count);
+    if (activeIndex >= start && activeIndex < start + count) {
       activeIndex = -1;
       api.send({ cmd: 'reset' });
       presenter = null;
       renderMarkers();
       renderLyrics();
       metaEl.textContent = 'Kein Song geladen.';
-    } else if (activeIndex > i) {
-      activeIndex--;
+    } else if (activeIndex >= start + count) {
+      activeIndex -= count;
     }
     renderSongs();
   }
@@ -911,7 +1398,9 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
       if (noticeLive) metaEl.innerHTML = parts.join(' · ');
       return;
     }
-    if (presenter.ended) parts.push('Song beendet');
+    if (lastSongHint) parts.push('<span class="rest-crit">LETZTER SONG — kein nächster in der Setlist</span>');
+    if (presenter.ended && setlistEnd) parts.push('<span class="rest-crit">ENDE DER SETLIST — kein weiterer Song · B = voriger, oder Song/Version anklicken</span>');
+    else if (presenter.ended) parts.push('Song beendet');
     else if (!presenter.started) parts.push('Bereit — Leertaste startet');
     else if (presenter.remaining >= 0) {
       const cls = presenter.remaining <= 5 ? 'rest-crit' : presenter.remaining <= 10 ? 'rest-warn' : '';
@@ -976,6 +1465,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
       : 'Text der Durchsage … (fährt als Laufband in einer Zeile durch, Absätze werden mit +++ verbunden)';
     clearGuard();
     renderKeys();
+    renderSongs(); // Warn-Symbole hängen am Modus
     leftResize.restore();
     scrollToCurrent(false);
   }
@@ -1143,8 +1633,9 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
       if (msg.kind === 'song-ended') {
         if (activeIndex >= 0) songs[activeIndex].status = 'finished';
         renderSongs();
-        // Auto-Next wie im Original
-        if (activeIndex < songs.length - 1) loadSong(activeIndex + 1);
+        // Auto-Next wie im Original — nächster Ordner, gewählte Version
+        if (!nextSong()) setlistEnd = true;
+        updateMeta();
       }
       if (msg.kind === 'error') {
         metaEl.textContent = (payload as { text: string }).text;
@@ -1156,6 +1647,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     dispose() {
       window.removeEventListener('keydown', onKey);
       clearTimeout(guardTimer);
+      clearTimeout(lastSongTimer);
       leftResize.dispose();
       // Sprungmarken lagen evtl. unter der Vorschau → mit wegräumen
       markerBox.remove();
@@ -1163,4 +1655,29 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
       if (extra) extra.hidden = true;
     },
   };
+}
+
+/** Versions-Kürzel im Dateinamen: „Titel V2 - Interpret.lrc“,
+ *  „Titel V4.1- Interpret.lrc“ — das Kürzel steht direkt vor dem Bindestrich */
+const VERSION_RE = /\s+V(\d+(?:\.\d+)*)(?=\s*-\s*)/i;
+
+/** Ordner-Daten aus dem Dateinamen: Basisname (ohne Kürzel), Key, Version */
+function fromFileName(file: string): { group: string; base: string; version: string } {
+  const stem = file.replace(/\.lrc$/i, '').trim();
+  const m = stem.match(VERSION_RE);
+  const version = m ? `V${m[1]}` : '';
+  const base = (m ? stem.replace(VERSION_RE, '') : stem).replace(/\s*-\s*/, ' - ').trim();
+  return { group: base.toLowerCase().replace(/\s+/g, ' '), base, version };
+}
+
+/** Reihenfolge im Ordner: Original, V2, V3 … V10 (numerisch, V4 < V4.1 < V5) */
+function compareVersions(a: string, b: string): number {
+  const num = (v: string) => (v ? v.slice(1).split('.').map(Number) : [-1]);
+  const x = num(a);
+  const y = num(b);
+  for (let k = 0; k < Math.max(x.length, y.length); k++) {
+    const d = (x[k] ?? -1) - (y[k] ?? -1);
+    if (d) return d;
+  }
+  return 0;
 }
