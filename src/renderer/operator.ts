@@ -511,6 +511,8 @@ function formatValue(value: number, unit?: string): string {
 }
 
 // ---------- State vom Wall-Fenster ----------
+/** Letzter automatischer Schmalaoke-Start im Mitsingkonzert */
+let mkAutoStartAt = 0;
 interface StateMsg {
   type: 'state';
   gameId: string | null;
@@ -589,6 +591,15 @@ window.bus.onMessage((raw) => {
   if (msg.gameId !== activeGameId) {
     activeGameId = msg.gameId;
     buildPanels(entryById(activeGameId));
+  }
+
+  // Mitsingkonzert: es gibt nur Schmalaoke und keine Spiele-Leiste —
+  // läuft nichts, startet es automatisch
+  // (gedrosselt: ein State, der vor dem Start unterwegs war, soll das
+  // Spiel nicht gleich ein zweites Mal neu starten)
+  if (mode === 'mk' && !activeGameId && Date.now() - mkAutoStartAt > 2000) {
+    mkAutoStartAt = Date.now();
+    window.bus.send({ type: 'start', gameId: 'schmalaoke' });
   }
 
   // Aktives Spiel markieren
