@@ -169,7 +169,7 @@
       main.with-sidebar.no-side {
         /* Rundown (Schmalaoke) bekommt den Löwenanteil — die Vorschau rechts
            muss nur zur Kontrolle reichen, nicht groß sein */
-        grid-template-columns: minmax(600px, 64%) 1fr;
+        grid-template-columns: var(--sidebar-w, minmax(600px, 64%)) minmax(0, 1fr);
       }
       #sidebar-col {
         overflow-y: auto;
@@ -307,8 +307,9 @@
       body.mode-mk #status-panel {
         display: none;
       }
+      /* Breite des Schmalaoke-Panels ist ziehbar (--sidebar-w, gap-resize) */
       body.mode-mk main.with-sidebar.no-side {
-        grid-template-columns: minmax(0, 1fr) 320px;
+        grid-template-columns: var(--sidebar-w, calc(100% - 320px - 16px)) minmax(0, 1fr);
         padding-top: 12px;
       }
       body.mode-mk .preview-panel {

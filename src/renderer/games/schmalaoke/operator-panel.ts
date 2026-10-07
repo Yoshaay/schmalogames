@@ -1,4 +1,5 @@
 import { OperatorPanel, OperatorPanelApi, StationMode } from '../../core/game';
+import { makeGapResizable } from '../../core/gap-resize';
 import { LRCParser, MAX_LINE_CHARS, MK_MAX_LINE_CHARS, parseMarkup, plainText } from './lrc-parser';
 
 /**
@@ -11,6 +12,9 @@ import { LRCParser, MAX_LINE_CHARS, MK_MAX_LINE_CHARS, parseMarkup, plainText } 
 interface Song {
   name: string;
   content: string;
+  /** Eigener Anzeigename aus dem Rundown (Umbenennen) — überstimmt den aus
+   *  der LRC gelesenen Titel, ändert aber nichts an der Datei */
+  label?: string;
   /** Teilungsgrenze beim Parsen — geht mit an die Wall (gleiche Zeilen) */
   maxChars: number;
   title: string;
@@ -50,7 +54,8 @@ const STYLE = `
      vollbreiten Buttons darunter, rechts der Presenter mit den Lyrics.
      Unten EINE Statuszeile statt verstreuter Hinweistexte. */
   .ka-root { display: flex; flex-direction: column; gap: 10px; height: 100%; }
-  .ka-cols { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 16px; }
+  /* Setlist-Breite ziehbar (--ka-left, gap-resize) */
+  .ka-cols { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--ka-left, minmax(0, 2fr)) minmax(0, 3fr); gap: 16px; }
   .ka-col { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
   .ka-markers { display: flex; flex-wrap: wrap; gap: 6px; max-height: 96px; overflow-y: auto; flex-shrink: 0; }
   .ka-marker {
@@ -105,10 +110,22 @@ const STYLE = `
   .dot-playing { background: var(--primary-bright); }
   .dot-finished { background: #2699d6; }
   .ka-song .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Eigener Name: kursiv, damit man sieht, dass er nicht aus der LRC kommt */
+  .ka-song .name.custom { font-style: italic; }
+  .ka-song input.ka-rename {
+    min-width: 0; font: inherit; color: var(--ink); background: #1d2029;
+    border: 1px solid var(--primary); border-radius: 3px; padding: 2px 6px; outline: none;
+  }
   .ka-song .warn { font-size: 11px; }
   /* Sortier-/Lösch-Buttons erst bei Hover — der Name bekommt die Breite
-     (Umsortieren geht ohnehin auch per Drag & Drop) */
-  .ka-song .ops { display: none; gap: 2px; }
+     (Umsortieren geht ohnehin auch per Drag & Drop). Absolut über dem
+     rechten Zeilenende, damit die Zeile beim Hover NICHT höher wird. */
+  .ka-song { position: relative; }
+  .ka-song .ops {
+    display: none; gap: 2px; position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+    padding-left: 12px; background: linear-gradient(to right, transparent, #171a22 12px);
+  }
+  .ka-song.active .ops { background: linear-gradient(to right, transparent, #18202a 12px); }
   .ka-song:hover .ops { display: flex; }
   /* Bewusste Ausnahme vom Grundformat: Mini-Controls IN den Listenzeilen */
   .ka-song .ops button { height: 22px; padding: 0 7px; font-size: 11px; }
@@ -182,7 +199,7 @@ const STYLE = `
      Schmale Setlist links, Rundown groß und umbrechend in der Mitte,
      Sprungmarken als große Buttons in #preview-extra unter der Vorschau. */
   .ka-mk .ka-auto { display: none; }
-  .ka-mk .ka-cols { grid-template-columns: 220px minmax(0, 1fr); }
+  .ka-mk .ka-cols { grid-template-columns: var(--ka-left, 220px) minmax(0, 1fr); }
   .ka-mk .ka-lyrics { padding: 4px 0 40vh; }
   .ka-mk .ka-lyric {
     font-size: 16px; line-height: 1.3; padding: 6px 14px;
@@ -299,6 +316,17 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
   const markersEl = q('markers');
   const markerHome = markerBox.parentElement!;
   const keysEl = q('keys');
+
+  // Grenze Setlist ↔ Rundown ziehbar, Breite je Modus gemerkt
+  const colsEl = container.querySelector<HTMLElement>('.ka-cols')!;
+  const leftResize = makeGapResizable({
+    container: colsEl,
+    left: () => colsEl.firstElementChild as HTMLElement,
+    apply: (px) => rootEl.style.setProperty('--ka-left', px === null ? null : `${px}px`),
+    storageKey: () => `schmalaoke.leftW.${mk ? 'mk' : 'fest'}`,
+    min: 160,
+    max: () => colsEl.clientWidth - 280,
+  });
   const metaEl = q('meta');
   const fileInput = container.querySelector<HTMLInputElement>('input[type=file]')!;
 
@@ -362,7 +390,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     const data = {
       type: 'schmalaoke-setlist',
       version: 2,
-      songs: songs.map((s) => ({ name: s.name, content: s.content })),
+      songs: songs.map((s) => ({ name: s.name, content: s.content, ...(s.label ? { label: s.label } : {}) })),
     };
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
@@ -379,7 +407,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     try {
       const data = JSON.parse(await file.text()) as {
         type?: string;
-        songs?: Array<{ name?: string; content?: string; filepath?: string }>;
+        songs?: Array<{ name?: string; content?: string; filepath?: string; label?: string }>;
       };
       if (data?.type !== 'schmalaoke-setlist' || !Array.isArray(data.songs)) throw new Error('kein Setlist-Format');
       if (!data.songs.every((s) => typeof s?.content === 'string')) {
@@ -388,7 +416,11 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
         return;
       }
       songs.length = 0;
-      for (const s of data.songs) songs.push(songFromContent(String(s.name ?? 'Song.lrc'), s.content!));
+      for (const s of data.songs) {
+        const song = songFromContent(String(s.name ?? 'Song.lrc'), s.content!);
+        if (typeof s.label === 'string' && s.label.trim()) song.label = s.label.trim();
+        songs.push(song);
+      }
       activeIndex = -1;
       presenter = null;
       api.send({ cmd: 'reset' });
@@ -438,7 +470,9 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     // Umschalten aufs Mitsingkonzert geladen) → frisch parsen, damit die
     // Zeilen zur Wall-Darstellung passen
     if (songs[index] && songs[index].maxChars !== modeMaxChars()) {
-      songs[index] = songFromContent(songs[index].name, songs[index].content, songs[index].status);
+      const old = songs[index];
+      songs[index] = songFromContent(old.name, old.content, old.status);
+      songs[index].label = old.label;
     }
     const song = songs[index];
     if (!song || !song.lines.length) return;
@@ -473,7 +507,34 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     loadSong(activeIndex - 1);
   }
 
-  function renderSongs() {
+  /** Anzeigename: eigener Name, sonst „Interpret – Titel“ aus der LRC */
+  const autoName = (song: Song) => (song.artist ? `${song.artist} – ${song.title}` : song.title);
+  const displayName = (song: Song) => song.label || autoName(song);
+
+  /* ---------- Umbenennen ----------
+     ✎ in der Zeile oder Rechtsklick → Name wird zum Eingabefeld. Enter
+     übernimmt, Esc bricht ab, leeres Feld = zurück zum Namen aus der LRC.
+     Solange getippt wird, baut renderSongs die Liste NICHT neu (Presenter-
+     Updates kommen laufend und würden das Feld sonst wegwerfen). */
+  let renaming = -1;
+
+  function startRename(i: number) {
+    renaming = i;
+    renderSongs(true);
+  }
+
+  function finishRename(i: number, value: string | null) {
+    if (renaming !== i) return;
+    renaming = -1;
+    if (value !== null && songs[i]) {
+      const v = value.trim();
+      songs[i].label = v && v !== autoName(songs[i]) ? v : undefined;
+    }
+    renderSongs();
+  }
+
+  function renderSongs(force = false) {
+    if (renaming >= 0 && !force) return;
     songsEl.innerHTML = '';
     if (!songs.length) {
       songsEl.innerHTML =
@@ -517,10 +578,35 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
       });
       const dot = document.createElement('span');
       dot.className = `dot dot-${song.status}`;
-      const name = document.createElement('span');
-      name.className = 'name';
-      name.textContent = song.artist ? `${song.artist} – ${song.title}` : song.title;
-      name.title = song.validation.warnings.join('\n') || song.name;
+      let name: HTMLElement;
+      if (i === renaming) {
+        const input = document.createElement('input');
+        input.className = 'name ka-rename';
+        input.value = displayName(song);
+        input.placeholder = autoName(song);
+        input.title = 'Enter übernimmt · Esc bricht ab · leer = Name aus der LRC';
+        input.onclick = (e) => e.stopPropagation();
+        input.onkeydown = (e) => {
+          e.stopPropagation();
+          if (e.key === 'Enter') finishRename(i, input.value);
+          else if (e.key === 'Escape') finishRename(i, null);
+        };
+        input.onblur = () => finishRename(i, input.value);
+        row.draggable = false;
+        name = input;
+        requestAnimationFrame(() => {
+          input.focus();
+          input.select();
+        });
+      } else {
+        name = document.createElement('span');
+        name.className = 'name';
+        name.textContent = displayName(song);
+        name.title = [song.label ? `Eigener Name · LRC: ${autoName(song)}` : '', `Datei: ${song.name}`, ...song.validation.warnings]
+          .filter(Boolean)
+          .join('\n');
+        if (song.label) name.classList.add('custom');
+      }
       row.append(dot, name);
       if (song.validation.level !== 'ok') {
         const warn = document.createElement('span');
@@ -532,6 +618,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
       const ops = document.createElement('span');
       ops.className = 'ops';
       for (const [label, fn] of [
+        ['✎', () => startRename(i)],
         ['↑', () => moveSong(i, -1)],
         ['↓', () => moveSong(i, 1)],
         ['✕', () => removeSong(i)],
@@ -546,6 +633,10 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
       }
       row.appendChild(ops);
       row.onclick = () => loadSong(i);
+      row.oncontextmenu = (e) => {
+        e.preventDefault();
+        startRename(i);
+      };
       songsEl.appendChild(row);
     });
   }
@@ -896,6 +987,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
       : 'Text der Durchsage … (fährt als Laufband in einer Zeile durch, Absätze werden mit +++ verbunden)';
     clearGuard();
     renderKeys();
+    leftResize.restore();
     scrollToCurrent(false);
   }
 
@@ -1075,6 +1167,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     dispose() {
       window.removeEventListener('keydown', onKey);
       clearTimeout(guardTimer);
+      leftResize.dispose();
       // Sprungmarken lagen evtl. unter der Vorschau → mit wegräumen
       markerBox.remove();
       const extra = document.getElementById('preview-extra');

@@ -1,5 +1,6 @@
 import { GameEntry, OperatorPanel, SettingDef, StationMode, parseStationMode } from './core/game';
 import { games } from './games/registry';
+import { makeGapResizable } from './core/gap-resize';
 
 const $ = (id: string) => document.getElementById(id)!;
 
@@ -31,6 +32,20 @@ const MODE_GAMES: Record<StationMode, string[]> = {
 };
 let mode: StationMode = parseStationMode(localStorage.getItem('operator.mode'));
 
+// Schmalaoke-Panel (Sidebar) ↔ Vorschau-Spalte: Grenze ziehbar, Breite
+// je Modus gemerkt (Mitsingkonzert hat ein anderes Grundlayout)
+const mainEl = document.querySelector('main')!;
+const sidebarResize = makeGapResizable({
+  container: mainEl,
+  left: () => (mainEl.classList.contains('with-sidebar') && mainEl.classList.contains('no-side') ? $('sidebar-col') : null),
+  apply: (px) => mainEl.style.setProperty('--sidebar-w', px === null ? null : `${px}px`),
+  storageKey: () => `layout.sidebarW.${mode === 'mk' ? 'mk' : 'fest'}`,
+  min: 480,
+  max: () => mainEl.clientWidth - 260,
+});
+
+window.addEventListener('resize', () => sidebarResize.restore());
+
 function applyMode(next: StationMode) {
   mode = next;
   localStorage.setItem('operator.mode', mode);
@@ -48,6 +63,7 @@ function applyMode(next: StationMode) {
     window.bus.send({ type: 'stop' });
   }
   gamePanel?.onModeChange?.(mode);
+  sidebarResize.restore();
 }
 document.querySelectorAll<HTMLButtonElement>('#mode-switch button').forEach((btn) => {
   btn.onclick = () => applyMode(btn.dataset.mode as StationMode);
@@ -310,7 +326,6 @@ function buildPanels(entry: GameEntry | null) {
   // Panel-Platzierung: Standard = linke Spalte unter der Vorschau,
   // 'sidebar' = eigene hochkante Spalte ganz links (Rundown-Stil)
   const sidebarCol = $('sidebar-col') as HTMLElement;
-  const mainEl = document.querySelector('main')!;
   const useSidebar = !!entry?.buildOperatorPanel && entry.panelLayout === 'sidebar';
   if (useSidebar) {
     sidebarCol.appendChild(gamePanelEl);
