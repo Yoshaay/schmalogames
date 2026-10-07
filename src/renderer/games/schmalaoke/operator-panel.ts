@@ -25,8 +25,6 @@ interface Song {
   base: string;
   /** Versions-Kürzel aus dem Dateinamen ('V2', 'V4.1'; '' = Original) */
   version: string;
-  /** In seinem Ordner gewählte Version (N/B laden diese) */
-  pick?: boolean;
   title: string;
   artist: string;
   lines: string[];
@@ -144,6 +142,9 @@ const STYLE = `
     flex-shrink: 0; font-family: var(--font-mono); font-size: 10px; color: var(--primary);
     border: 1px solid rgba(var(--primary-rgb), 0.4); border-radius: 3px; padding: 0 5px;
   }
+  /* Laufende Version im Ordner: Name in Akzentfarbe + Balken links */
+  .ka-version.active { box-shadow: inset 3px 0 0 var(--primary); }
+  .ka-version.active .name { color: var(--primary); font-weight: 600; }
   .ka-vcount { flex-shrink: 0; font-family: var(--font-mono); font-size: 10px; color: var(--ink-dim); }
   /* Versionen: eingerückt mit Führungslinie in Ordnerfarbe */
   .ka-version { padding-left: 40px; background: #0d0f14; position: relative; }
@@ -152,8 +153,6 @@ const STYLE = `
     background: rgba(var(--primary-rgb), 0.25);
   }
   /* Gewählte Version: Name in Akzentfarbe + Balken links */
-  .ka-version.picked { box-shadow: inset 3px 0 0 var(--primary); }
-  .ka-version.picked .name { color: var(--primary); font-weight: 600; }
   .ka-vinfo {
     flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     font-family: var(--font-mono); font-size: 10px; color: var(--ink-dim);
@@ -453,7 +452,6 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
         name: s.name,
         content: s.content,
         group: s.group,
-        ...(s.pick ? { pick: true } : {}),
         ...(s.label ? { label: s.label } : {}),
       })),
       folders: Object.fromEntries(groupNames),
@@ -474,7 +472,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     try {
       const data = JSON.parse(await file.text()) as {
         type?: string;
-        songs?: Array<{ name?: string; content?: string; filepath?: string; label?: string; group?: string; pick?: boolean }>;
+        songs?: Array<{ name?: string; content?: string; filepath?: string; label?: string; group?: string }>;
         folders?: Record<string, string>;
         emptyFolders?: string[];
       };
@@ -493,7 +491,6 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
         if (typeof s.label === 'string' && s.label.trim()) song.label = s.label.trim();
         // Gespeicherte Ordner-Zuordnung (inkl. händischer Ordner) hat Vorrang
         if (typeof s.group === 'string' && s.group) song.group = s.group;
-        song.pick = s.pick === true;
         songs.push(song);
       }
       for (const [g, n] of Object.entries(data.folders ?? {})) if (typeof n === 'string') groupNames.set(g, n);
@@ -541,9 +538,10 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
   /* ---------- Ordner: Versionen eines Songs ----------
      Die Liste bleibt flach; Versionen desselben Songs (gleicher group-Key
      aus dem Dateinamen) liegen direkt hintereinander und bilden einen
-     Ordner („Run“). Pro Ordner ist genau eine Version gewählt (pick) — N/B
-     springen von Ordner zu Ordner und laden die gewählte Version. Ein
-     Ordner mit nur einer Version wird als normale Zeile gezeigt. */
+     Ordner („Run“). Ordner sind nur Ordnung/Zuklappen: N, B und Auto-
+     Next gehen der Reihe nach durch JEDEN Eintrag, auch innerhalb von
+     Ordnern (jede Version wird einmal gespielt, z.B. V4.1 → V5 → V6).
+     Ein Ordner mit nur einer Version wird als normale Zeile gezeigt. */
   /** Aufgeklappte Ordner (group-Keys); neue Ordner starten zugeklappt */
   const openGroups = new Set<string>();
   /** Eigene Ordnernamen (Umbenennen bzw. händisch angelegte Ordner) */
@@ -562,27 +560,6 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     while (start > 0 && songs[start - 1].group === songs[i].group) start--;
     while (end < songs.length - 1 && songs[end + 1].group === songs[i].group) end++;
     return { start, end };
-  }
-
-  /** Gewählte Version eines Ordners (Index) */
-  function pickedOf(i: number): number {
-    const r = runOf(i);
-    for (let k = r.start; k <= r.end; k++) if (songs[k].pick) return k;
-    return r.start;
-  }
-
-  /** Genau eine gewählte Version pro Ordner (sonst die erste) */
-  function normalizePicks() {
-    for (let i = 0; i < songs.length; ) {
-      const r = runOf(i);
-      let seen = false;
-      for (let k = r.start; k <= r.end; k++) {
-        if (songs[k].pick && !seen) seen = true;
-        else songs[k].pick = false;
-      }
-      if (!seen) songs[r.start].pick = true;
-      i = r.end + 1;
-    }
   }
 
   /** Neuen Song einsortieren: in einen vorhandenen Ordner nach Version
@@ -684,14 +661,12 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
       const old = songs[index];
       songs[index] = songFromContent(old.name, old.content, old.status);
       songs[index].label = old.label;
-      songs[index].pick = old.pick;
       songs[index].group = old.group;
     }
     const song = songs[index];
     if (!song || !song.lines.length) return;
-    // Laden = diese Version im Ordner wählen
-    const r = runOf(index);
-    for (let k = r.start; k <= r.end; k++) songs[k].pick = k === index;
+    // Liegt der Song in einem Ordner: aufklappen, damit man sieht, wo man ist
+    if (inFolder(index)) openGroups.add(song.group);
     // vorherigen loaded-Song zurücksetzen (falls nicht schon gespielt)
     songs.forEach((s, i) => {
       if (i !== index && s.status === 'loaded') s.status = 'planned';
@@ -704,14 +679,17 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     renderSongs();
     renderMarkers();
     renderLyrics();
+    // Neuer Song: Rundown oben anfangen, nicht an der Scrollstelle des
+    // vorigen Songs (sonst steht man mitten im neuen Text)
+    lyricsEl.scrollTop = 0;
   }
 
-  /** Nächster Ordner/Song (Taste N, Auto-Next): gewählte Version laden.
-   *  false = es gibt keinen weiteren. */
+  /** Nächster Eintrag (Taste N, Auto-Next) — der Reihe nach, auch
+   *  innerhalb von Ordnern. false = es gibt keinen weiteren. */
   function nextSong(): boolean {
-    const from = activeIndex >= 0 ? runOf(activeIndex).end + 1 : 0;
+    const from = activeIndex + 1;
     if (from >= songs.length) return false;
-    loadSong(pickedOf(from));
+    loadSong(from);
     return true;
   }
 
@@ -725,7 +703,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
   q('next').onclick = () => {
     // Mitsingkonzert: am letzten Song tut N NICHTS — ein Druck zu viel
     // soll live nicht die Wall leer machen. Der Song läuft weiter.
-    if (mk && activeIndex >= 0 && runOf(activeIndex).end >= songs.length - 1) {
+    if (mk && activeIndex >= 0 && activeIndex >= songs.length - 1) {
       lastSongHint = true;
       updateMeta();
       clearTimeout(lastSongTimer);
@@ -744,16 +722,14 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     updateMeta();
   };
 
-  /** Voriger Song (Taste B): lädt die gewählte Version des Ordners davor —
-   *  sie startet wie jeder geladene Song erst mit der Leertaste. Der
-   *  verlassene Song gilt wieder als geplant, außer er war durchgespielt. */
+  /** Voriger Eintrag (Taste B) — startet wie jeder geladene Song erst mit
+   *  der Leertaste. Der verlassene Song gilt wieder als geplant, außer er
+   *  war durchgespielt. */
   function prevSong() {
-    if (activeIndex < 0) return;
-    const r = runOf(activeIndex);
-    if (r.start <= 0) return;
+    if (activeIndex <= 0) return;
     const cur = songs[activeIndex];
     if (cur.status !== 'finished') cur.status = 'planned';
-    loadSong(pickedOf(r.start - 1));
+    loadSong(activeIndex - 1);
   }
 
   /** Anzeigename: eigener Name, sonst „Interpret – Titel“ aus der LRC
@@ -1040,10 +1016,9 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     return row;
   }
 
-  /** Ordner-Kopf: Klick klappt auf/zu, zeigt die gewählte Version */
+  /** Ordner-Kopf: Klick klappt auf/zu; zeigt, welche Version gerade läuft */
   function folderRow(start: number, end: number): HTMLElement {
     const song = songs[start];
-    const picked = pickedOf(start);
     const open = openGroups.has(song.group);
     const holdsActive = activeIndex >= start && activeIndex <= end;
     const row = document.createElement('div');
@@ -1051,13 +1026,17 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     wireDrag(row, start, 'folder', { start, count: end - start + 1, item: false });
     const chev = chevEl();
     const dot = document.createElement('span');
-    dot.className = `dot dot-${songs[picked].status}`;
+    // Ordner-Status: läuft/geladen, wenn er den aktiven Song enthält; fertig,
+    // wenn alle durch sind; sonst geplant
+    const inRun = songs.slice(start, end + 1);
+    dot.className = `dot dot-${holdsActive ? songs[activeIndex].status : inRun.every((x) => x.status === 'finished') ? 'finished' : 'planned'}`;
     const name = folderNameEl(song.group, isManual(song.group) ? 'Ordner' : song.base);
-    name.title = `${end - start + 1} Versionen · gewählt: ${versionName(songs[picked])}\nKlick klappt auf/zu · Rechtsklick benennt um`;
+    name.title = `${end - start + 1} Einträge · Klick klappt auf/zu · Rechtsklick benennt um`;
     const tag = document.createElement('span');
     tag.className = 'ka-vtag';
-    tag.textContent = versionName(songs[picked]);
-    tag.title = 'Gewählte Version — N/B laden diese';
+    tag.textContent = holdsActive ? versionName(songs[activeIndex]) : '';
+    tag.title = 'Läuft gerade';
+    tag.hidden = !holdsActive;
     const count = document.createElement('span');
     count.className = 'ka-vcount';
     const n = end - start + 1;
@@ -1085,7 +1064,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
   function versionRow(i: number): HTMLElement {
     const song = songs[i];
     const row = document.createElement('div');
-    row.className = 'ka-song ka-version' + (i === activeIndex ? ' active' : '') + (song.pick ? ' picked' : '');
+    row.className = 'ka-song ka-version' + (i === activeIndex ? ' active' : '');
     wireDrag(row, i, 'version', { start: i, count: 1, item: true });
     const dot = document.createElement('span');
     dot.className = `dot dot-${song.status}`;
@@ -1096,7 +1075,6 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     info.className = 'ka-vinfo';
     info.textContent = versionInfo(song);
     row.append(dot, nameEl(i, versionName(song), versionAuto(song), tip, row), info);
-    if (song.pick) row.title = 'Gewählte Version — N/B laden diese';
     const warn = warnEl(song);
     if (warn) row.appendChild(warn);
     row.appendChild(
@@ -1121,7 +1099,6 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
         '<div class="ka-empty"><b>Keine Songs in der Setlist</b>LRC-Dateien hierhin ziehen oder „+ Songs hinzufügen“</div>';
       return;
     }
-    normalizePicks();
     for (let i = 0; i < songs.length; ) {
       const r = runOf(i);
       if (r.end === r.start && !isManual(songs[i].group)) {

@@ -660,14 +660,18 @@ export class Schmalaoke implements Game {
       this.drawMkLine(g, this.errorText, 0);
       return;
     }
-    if (!this.lyricsModeStarted || this.songEndedDisplayed) return;
+    if (!this.lyricsModeStarted) return;
+    // Song-Ende: die letzte Zeile fährt noch nach oben raus (Ziel = eine
+    // Zeile hinter dem Ende, da kommt nichts nach) — danach bleibt es leer
+    if (this.songEndedDisplayed && this.mkT0 < 0) return;
+    const target = this.songEndedDisplayed ? this.mkTarget : this.currentLine;
 
-    // Angezeigte Position: gleitet vom alten zum neuen currentLine
-    let pos = this.currentLine;
+    // Angezeigte Position: gleitet vom alten zum neuen Ziel
+    let pos = target;
     if (this.mkT0 >= 0) {
       const t = (this.time - this.mkT0) / ANIM_S;
       if (t >= 1) this.mkT0 = -1;
-      else pos = this.mkFrom + (this.currentLine - this.mkFrom) * ease(t);
+      else pos = this.mkFrom + (target - this.mkFrom) * ease(t);
     }
     const first = Math.max(0, Math.floor(pos) - 1);
     const last = Math.min(this.lines.length - 1, Math.ceil(pos) + MK_SLOTS.length - 2);
@@ -1061,6 +1065,11 @@ export class Schmalaoke implements Game {
 
   private finishSong() {
     if (this.songEndedDisplayed || !this.lines.length) return;
+    // Mitsingkonzert: letzte Zeile nach oben rausfahren statt abschneiden
+    if (this.mk && this.lyricsModeStarted) {
+      this.mkMove(false);
+      this.mkTarget = this.currentLine + 1;
+    }
     this.songEndedDisplayed = true;
     this.sprites = [];
     this.sendPresenter();
