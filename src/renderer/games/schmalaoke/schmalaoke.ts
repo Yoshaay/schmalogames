@@ -723,16 +723,35 @@ export class Schmalaoke implements Game {
 
     g.scale(lay.fit, lay.fit);
     g.fillStyle = MK_TEXT;
-    lay.rows.forEach((row, r) => {
-      const ry = (r - (n - 1) / 2) * rowH;
-      let x = -row.w / 2;
-      row.segs.forEach((s, j) => {
-        g.font = mkFont(s);
-        g.fillText(s.text, x, ry);
-        if (s.u) g.fillRect(x, ry + MK_REF_SIZE * UNDERLINE_Y, row.widths[j], MK_REF_SIZE * UNDERLINE_H);
-        x += row.widths[j];
+    // Vorschauzeilen in leichterem Schnitt, damit der Blick auf der
+    // aktuellen Zeile bleibt. Beim Hochrutschen blendet der leichte in den
+    // fetten Schnitt über (kein Sprung). Umbruch bleibt der des fetten
+    // Schnitts — nur die Breiten werden pro Schnitt gemessen.
+    // Überblendung nur im kurzen Abschnitt Platz 0,2–0,5 — überlagerte
+    // Schnitte wirken sonst sichtbar doppelt
+    const light = Math.min(1, Math.max(0, (slot - 0.2) / 0.3));
+    const drawRows = (isLight: boolean, a: number) => {
+      if (a <= 0.01) return;
+      g.globalAlpha = alpha * a;
+      lay.rows.forEach((row, r) => {
+        const ry = (r - (n - 1) / 2) * rowH;
+        const widths = isLight
+          ? row.segs.map((s) => {
+              g.font = mkFont(s, true);
+              return g.measureText(s.text).width;
+            })
+          : row.widths;
+        let x = -widths.reduce((sum, w) => sum + w, 0) / 2;
+        row.segs.forEach((s, j) => {
+          g.font = mkFont(s, isLight);
+          g.fillText(s.text, x, ry);
+          if (s.u) g.fillRect(x, ry + MK_REF_SIZE * UNDERLINE_Y, widths[j], MK_REF_SIZE * UNDERLINE_H);
+          x += widths[j];
+        });
       });
-    });
+    };
+    drawRows(false, 1 - light);
+    drawRows(true, light);
     g.restore();
   }
 
@@ -1071,6 +1090,8 @@ export class Schmalaoke implements Game {
 }
 
 /** Schrift einer Lyrics-Zeile im Mitsingkonzert (Referenzgröße) */
-function mkFont(s: Segment): string {
-  return `${s.i ? 'italic ' : ''}${s.b ? 900 : 700} ${MK_REF_SIZE}px 'TheSans', system-ui, sans-serif`;
+function mkFont(s: Segment, light = false): string {
+  // light = Vorschauzeile: Plain (400) statt Bold, <b> dann Bold statt Black
+  const w = light ? (s.b ? 700 : 400) : s.b ? 900 : 700;
+  return `${s.i ? 'italic ' : ''}${w} ${MK_REF_SIZE}px 'TheSans', system-ui, sans-serif`;
 }

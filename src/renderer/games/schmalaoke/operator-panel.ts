@@ -113,6 +113,7 @@ const STYLE = `
   .ka-song.dragging { opacity: 0.4; }
   .ka-song.drop-above { box-shadow: inset 0 2px 0 var(--primary); }
   .ka-song.drop-below { box-shadow: inset 0 -2px 0 var(--primary); }
+  .ka-list.drop-end { box-shadow: inset 0 -3px 0 var(--primary); }
   .ka-list.dropping { border-color: var(--primary); background: rgba(var(--primary-rgb), 0.06); }
   .ka-song .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
   .dot-planned { background: #3a3e4c; }
@@ -186,7 +187,10 @@ const STYLE = `
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .ka-lyric.current { color: #ffffff; border-left-color: var(--primary); background: rgba(var(--primary-rgb), 0.08); }
-  .ka-lyric.armed { color: var(--live); border-left-color: var(--live); }
+  .ka-lyric.armed { color: var(--live); border-left-color: var(--live); background: rgba(231, 29, 115, 0.1); }
+  /* Shift gehalten: Zeilen werden anklickbar (freier Sprung) */
+  .ka-lyrics.shift .ka-lyric { cursor: pointer; user-select: none; }
+  .ka-lyrics.shift .ka-lyric:hover { background: rgba(231, 29, 115, 0.08); border-left-color: rgba(231, 29, 115, 0.5); }
   /* Schwarz: aktuelle Zeile durchgestrichen-blass, Rand in Warnfarbe */
   .ka-lyrics.blank .ka-lyric.current { color: var(--ink-dim); border-left-color: var(--live); background: rgba(231, 29, 115, 0.08); }
   .ka-root button.ka-blank.live {
@@ -512,14 +516,25 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
       e.preventDefault();
       e.dataTransfer.dropEffect = 'copy';
       songsEl.classList.add('dropping');
+    } else if (drag && e.target === songsEl) {
+      // Song in die freie Fläche unter der Liste ziehen = ans Ende
+      e.preventDefault();
+      songsEl.classList.add('drop-end');
     }
   });
-  songsEl.addEventListener('dragleave', () => songsEl.classList.remove('dropping'));
+  songsEl.addEventListener('dragleave', () => songsEl.classList.remove('dropping', 'drop-end'));
   songsEl.addEventListener('drop', (e) => {
-    songsEl.classList.remove('dropping');
+    songsEl.classList.remove('dropping', 'drop-end');
     if (e.dataTransfer?.files.length) {
       e.preventDefault();
       void addFiles(e.dataTransfer.files);
+    } else if (drag && e.target === songsEl) {
+      e.preventDefault();
+      const src = drag;
+      drag = null;
+      // Eine Version verlässt dabei ihren Ordner
+      const leaving = src.item && inFolder(src.start) ? `s:${uid()}` : undefined;
+      moveRange(src.start, src.count, songs.length, leaving);
     }
   });
 
@@ -633,7 +648,11 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
       return k;
     };
     activeIndex = remap(activeIndex);
+    // Neue Reihenfolge: ein altes „Ende der Setlist“ gilt nicht mehr
+    setlistEnd = false;
+    lastSongHint = false;
     renderSongs();
+    updateMeta();
   }
 
   /** Was passiert beim Loslassen über Zeile i (kind = Zeilentyp)? */
@@ -1383,8 +1402,15 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
         note.title = song.comments[i]!;
         el.appendChild(note);
       }
-      // Bewusst KEIN Klick auf Zeilen: das sah aus wie "ausgewählt", sprang
-      // aber nicht — Sprünge laufen nur über die Marken-Chips / Ziffern
+      // Freier Sprung: NUR Shift+Klick armiert die Zeile wie eine
+      // Sprungmarke (Leertaste löst aus, nochmal Shift+Klick hebt auf).
+      // Ein normaler Klick tut bewusst nichts — live soll nichts aus
+      // Versehen passieren.
+      el.onclick = (e) => {
+        if (!e.shiftKey) return;
+        e.preventDefault();
+        api.send({ cmd: 'jump', index: i });
+      };
       lyricsEl.appendChild(el);
     });
   }
@@ -1472,8 +1498,8 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
 
   function renderKeys() {
     keysEl.innerHTML = mk
-      ? '<kbd>Leertaste</kbd> weiter · <kbd>←</kbd> zurück · <kbd>S</kbd> Schwarz · <kbd>1–9</kbd> Sprungmarke · <kbd>R</kbd><kbd>R</kbd> Neustart · <kbd>B</kbd><kbd>B</kbd> voriger / <kbd>N</kbd><kbd>N</kbd> nächster Song'
-      : '<kbd>Leertaste</kbd> weiter · <kbd>←</kbd> zurück · <kbd>S</kbd> Schwarz · <kbd>R</kbd> Neustart · <kbd>1–9</kbd> Sprungmarke · <kbd>B</kbd> voriger / <kbd>N</kbd> nächster Song';
+      ? '<kbd>Leertaste</kbd> weiter · <kbd>←</kbd> zurück · <kbd>S</kbd> Schwarz · <kbd>1–9</kbd> / <kbd>⇧</kbd>+Klick Sprung · <kbd>R</kbd><kbd>R</kbd> Neustart · <kbd>B</kbd><kbd>B</kbd> voriger / <kbd>N</kbd><kbd>N</kbd> nächster Song'
+      : '<kbd>Leertaste</kbd> weiter · <kbd>←</kbd> zurück · <kbd>S</kbd> Schwarz · <kbd>R</kbd> Neustart · <kbd>1–9</kbd> / <kbd>⇧</kbd>+Klick Sprung · <kbd>B</kbd> voriger / <kbd>N</kbd> nächster Song';
   }
 
   function clearGuard() {
@@ -1541,6 +1567,12 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     handleCode(e.code);
   };
   window.addEventListener('keydown', onKey);
+  // Shift gehalten → Rundown zeigt, dass Zeilen anklickbar sind
+  const onShift = (e: KeyboardEvent) => lyricsEl.classList.toggle('shift', e.shiftKey);
+  const onBlurShift = () => lyricsEl.classList.remove('shift');
+  window.addEventListener('keydown', onShift);
+  window.addEventListener('keyup', onShift);
+  window.addEventListener('blur', onBlurShift);
 
   renderSongs();
   renderMarkers();
@@ -1646,6 +1678,9 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     },
     dispose() {
       window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keydown', onShift);
+      window.removeEventListener('keyup', onShift);
+      window.removeEventListener('blur', onBlurShift);
       clearTimeout(guardTimer);
       clearTimeout(lastSongTimer);
       leftResize.dispose();
