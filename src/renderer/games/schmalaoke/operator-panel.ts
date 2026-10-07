@@ -41,6 +41,8 @@ interface PresenterState {
   refBpm: number;
   /** Notfall-Durchsage auf der Wall ('' = keine) */
   notice: string;
+  /** Schwarz: Lyrics auf der Wall ausgeblendet (Taste S) */
+  blank?: boolean;
 }
 
 const STYLE = `
@@ -117,6 +119,11 @@ const STYLE = `
   }
   .ka-lyric.current { color: #ffffff; border-left-color: var(--primary); background: rgba(var(--primary-rgb), 0.08); }
   .ka-lyric.armed { color: var(--live); border-left-color: var(--live); }
+  /* Schwarz: aktuelle Zeile durchgestrichen-blass, Rand in Warnfarbe */
+  .ka-lyrics.blank .ka-lyric.current { color: var(--ink-dim); border-left-color: var(--live); background: rgba(231, 29, 115, 0.08); }
+  .ka-root button.ka-blank.live {
+    color: #ffffff; background: var(--live); border-color: var(--live); font-weight: 700;
+  }
   .ka-lyric b { color: #ffffff; }
   .ka-lyric .sec {
     font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.1em;
@@ -240,6 +247,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
             <button data-id="restart" title="Song von vorn — Taste R">Neustart</button>
             <button data-id="next" title="Taste N">Nächster Song</button>
           </div>
+          <button data-id="blank" class="ka-btn-wide ka-blank" title="Lyrics auf der Wall aus-/einblenden (z.B. Solo) — Taste S. Leertaste blendet ein und schaltet weiter">Schwarz (S)</button>
           <div class="ka-head" title="Freier Text (Suchmeldung, Warnung) statt der Lyrics — an derselben Stelle wie die Untertitel">Notfall-Durchsage</div>
           <button data-id="notice" class="ka-btn-wide ka-notice" title="Modus an/aus — AUS nimmt die Durchsage sofort von der Wall">Notfall-Durchsage</button>
           <div class="ka-notice-box" data-id="noticebox" hidden>
@@ -455,6 +463,16 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     }
   };
 
+  /** Voriger Song (Taste B): lädt den Song davor — er startet wie jeder
+   *  geladene Song erst mit der Leertaste. Der verlassene Song gilt wieder
+   *  als geplant, außer er war schon durchgespielt. */
+  function prevSong() {
+    if (activeIndex <= 0) return;
+    const cur = songs[activeIndex];
+    if (cur.status !== 'finished') cur.status = 'planned';
+    loadSong(activeIndex - 1);
+  }
+
   function renderSongs() {
     songsEl.innerHTML = '';
     if (!songs.length) {
@@ -557,6 +575,16 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
   }
 
   q('restart').onclick = () => api.send({ cmd: 'restart' });
+  const blankBtn = q('blank') as HTMLButtonElement;
+  blankBtn.onclick = () => api.send({ cmd: 'blank' });
+
+  /** Schwarz-Zustand am Button und im Rundown zeigen */
+  function renderBlank() {
+    const on = !!presenter?.blank;
+    blankBtn.classList.toggle('live', on);
+    blankBtn.textContent = on ? 'SCHWARZ — einblenden (S)' : 'Schwarz (S)';
+    lyricsEl.classList.toggle('blank', on);
+  }
 
   /* ---------- Notfall-Durchsage ---------- */
   // Modus AN = Textfeld sichtbar, noch nichts auf der Wall. „Fertig“ schickt
@@ -798,6 +826,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
   function updateMeta() {
     const parts: string[] = [];
     if (noticeLive) parts.push('<span class="notice-live">NOTFALL-DURCHSAGE LIVE</span>');
+    if (presenter?.blank) parts.push('<span class="notice-live">SCHWARZ — Leertaste blendet ein</span>');
     if (!presenter || activeIndex < 0) {
       if (noticeLive) metaEl.innerHTML = parts.join(' · ');
       return;
@@ -809,19 +838,21 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
       parts.push(`<span class="${cls}">${presenter.remaining} Zeilen übrig</span>`);
     }
     if (presenter.pendingJump >= 0) parts.push(`<span class="rest-crit">Sprung armiert → Zeile ${presenter.pendingJump + 1} (Leertaste)</span>`);
-    if (guardKey) parts.push(`<span class="rest-crit">${guardKey === 'nextsong' ? 'N' : 'R'} nochmal drücken = ${guardKey === 'nextsong' ? 'nächster Song' : 'Neustart'}</span>`);
+    if (guardKey) parts.push(`<span class="rest-crit">${GUARDED[guardKey].key} nochmal drücken = ${GUARDED[guardKey].label}</span>`);
     metaEl.innerHTML = parts.join(' · ');
   }
 
   /* ---------- Tastensteuerung (wie im Original-Player) ---------- */
 
-  const KEY_MAP: Record<string, 'space' | 'prev' | 'nextsong' | 'restart' | 'auto'> = {
+  const KEY_MAP: Record<string, 'space' | 'prev' | 'nextsong' | 'prevsong' | 'restart' | 'auto' | 'blank'> = {
     Space: 'space',
     ArrowRight: 'space',
     ArrowDown: 'space',
     ArrowLeft: 'prev',
     ArrowUp: 'prev',
     KeyN: 'nextsong',
+    KeyB: 'prevsong',
+    KeyS: 'blank',
     // R = Neustart (MacBook-tauglich); Home bleibt für externe Tastaturen
     KeyR: 'restart',
     Home: 'restart',
@@ -836,9 +867,16 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
   // versehentliches N mitten im Song wäre live fatal.
   let mk = false;
   /** Doppeldruck-Sicherung: Taste, die gerade auf Bestätigung wartet */
-  let guardKey: 'nextsong' | 'restart' | null = null;
+  let guardKey: Guarded | null = null;
   let guardTimer = -1;
   const GUARD_MS = 1500;
+  /** Tasten mit Doppeldruck-Sicherung im Mitsingkonzert */
+  const GUARDED = {
+    nextsong: { key: 'N', label: 'nächster Song' },
+    prevsong: { key: 'B', label: 'voriger Song' },
+    restart: { key: 'R', label: 'Neustart' },
+  };
+  type Guarded = keyof typeof GUARDED;
 
   function applyMode(mode: StationMode) {
     mk = mode === 'mk';
@@ -854,7 +892,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     // Auto-Advance ist im Mitsingkonzert nicht bedienbar → sicher aus
     if (mk && autoOn) autoBtn.click();
     noticeText.placeholder = mk
-      ? 'Text der Durchsage … (steht groß auf rotem Block im Quadrat, Absätze bleiben Absätze)'
+      ? 'Text der Durchsage … (läuft unten am Bildrand als Laufband durch, Absätze werden mit +++ verbunden)'
       : 'Text der Durchsage … (fährt als Laufband in einer Zeile durch, Absätze werden mit +++ verbunden)';
     clearGuard();
     renderKeys();
@@ -863,8 +901,8 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
 
   function renderKeys() {
     keysEl.innerHTML = mk
-      ? '<kbd>Leertaste</kbd> weiter · <kbd>←</kbd> zurück · <kbd>1–9</kbd> Sprungmarke · <kbd>R</kbd><kbd>R</kbd> Neustart · <kbd>N</kbd><kbd>N</kbd> nächster Song'
-      : '<kbd>Leertaste</kbd> weiter · <kbd>←</kbd> zurück · <kbd>R</kbd> Neustart · <kbd>1–9</kbd> Sprungmarke · <kbd>N</kbd> nächster Song';
+      ? '<kbd>Leertaste</kbd> weiter · <kbd>←</kbd> zurück · <kbd>S</kbd> Schwarz · <kbd>1–9</kbd> Sprungmarke · <kbd>R</kbd><kbd>R</kbd> Neustart · <kbd>B</kbd><kbd>B</kbd> voriger / <kbd>N</kbd><kbd>N</kbd> nächster Song'
+      : '<kbd>Leertaste</kbd> weiter · <kbd>←</kbd> zurück · <kbd>S</kbd> Schwarz · <kbd>R</kbd> Neustart · <kbd>1–9</kbd> Sprungmarke · <kbd>B</kbd> voriger / <kbd>N</kbd> nächster Song';
   }
 
   function clearGuard() {
@@ -874,7 +912,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
   }
 
   /** true = Befehl ausführen; false = erst mal nur scharf geschaltet */
-  function guardPassed(cmd: 'nextsong' | 'restart'): boolean {
+  function guardPassed(cmd: Guarded): boolean {
     if (!mk) return true;
     if (guardKey === cmd) {
       clearGuard();
@@ -909,9 +947,13 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
     const cmd = KEY_MAP[code];
     if (!cmd) return;
     if (cmd === 'auto' && mk) return;
-    if ((cmd === 'nextsong' || cmd === 'restart') && !guardPassed(cmd)) return;
-    if (cmd !== 'nextsong' && cmd !== 'restart' && guardKey) clearGuard();
+    if (cmd in GUARDED) {
+      if (!guardPassed(cmd as Guarded)) return;
+    } else if (guardKey) {
+      clearGuard();
+    }
     if (cmd === 'nextsong') q('next').click();
+    else if (cmd === 'prevsong') prevSong();
     else if (cmd === 'auto') autoBtn.click();
     else api.send({ cmd });
   }
@@ -966,6 +1008,7 @@ export function buildSchmalaokePanel(container: HTMLElement, api: OperatorPanelA
         renderMarkers();
         renderLyrics();
         renderRefBpm();
+        renderBlank();
         updateMeta();
         // aktive Zeile in Sicht halten
         scrollToCurrent();

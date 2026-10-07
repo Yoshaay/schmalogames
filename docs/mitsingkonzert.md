@@ -19,7 +19,8 @@ Festival-Modi verhalten sich unverändert.
   nur für den Operator im Rundown und als Sprung-Buttons.
 - Lange Zeilen: Geteilt wird erst ab 56 Zeichen (Festival: 36), weil die
   Wall selbst auf zwei Reihen umbricht.
-- Notfall-Durchsage: statischer Text auf rotem Block, mittig (kein Laufband).
+- Notfall-Durchsage: Laufband auf rotem Balken am unteren Bildrand, Lyrics
+  sind solange ausgeblendet.
 
 ## Regie (eine Person, MacBook)
 - Ausgeblendet: Spiele-Leiste, Statuspanel, Auto-Advance/Beat-Sync

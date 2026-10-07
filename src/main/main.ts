@@ -80,11 +80,11 @@ function createWindows() {
     });
   }
 
-  // Spiel-Tasten (z.B. Schmalaoke: Space/Pfeile/N/R/A, Groove: T) auch bei
+  // Spiel-Tasten (z.B. Schmalaoke: Space/Pfeile/N/B/S/R/A, Groove: T) auch bei
   // fokussierter WALL abfangen und ans Operator-Panel weiterreichen. Nur von
   // der Wall — im Operator übernimmt der lokale Handler (kennt Eingabefelder
   // & Buttons).
-  const GAME_KEYS = new Set(['Space', 'ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'KeyN', 'KeyR', 'KeyA', 'KeyT', 'Home']);
+  const GAME_KEYS = new Set(['Space', 'ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'KeyN', 'KeyB', 'KeyS', 'KeyR', 'KeyA', 'KeyT', 'Home']);
   wall.webContents.on('before-input-event', (_event, input) => {
     if (input.type !== 'keyDown' || input.isAutoRepeat) return;
     if (input.control || input.meta || input.alt) return;

@@ -15,7 +15,7 @@ import bgUrl from './assets/final/Untertitel_BG_v2.png';
 
 /** Nachrichten vom Operator-Panel */
 interface Cmd {
-  cmd: 'song' | 'space' | 'prev' | 'nextsong' | 'restart' | 'jump' | 'reset' | 'auto' | 'micdev' | 'hello' | 'bpmreset' | 'bpmset' | 'notice';
+  cmd: 'song' | 'space' | 'prev' | 'nextsong' | 'restart' | 'jump' | 'reset' | 'auto' | 'micdev' | 'hello' | 'bpmreset' | 'bpmset' | 'notice' | 'blank';
   name?: string;
   content?: string;
   /** song: Teilungsgrenze, mit der das Panel geparst hat (Default 36) */
@@ -147,10 +147,10 @@ const MK_SLOTS: Array<{ y: number; size: number; alpha: number }> = [
   { y: 1150, size: 72, alpha: 0.38 },
   { y: 1420, size: 72, alpha: 0 },
 ];
-/** Notfall-Durchsage im Mitsingkonzert: statischer Text auf rotem Block,
- *  mittig im Quadrat (kein Laufband — im Quadrat ist Platz zum Stehen) */
-const MK_NOTICE_SIZE = 96;
-const MK_NOTICE_PAD = 72;
+/** Notfall-Durchsage im Mitsingkonzert: Laufband auf rotem Balken am
+ *  unteren Bildrand (Lyrics sind solange ausgeblendet) */
+const MK_NOTICE_SIZE = 88;
+const MK_NOTICE_BAR_H = 160;
 
 /** Umbruch einer Zeile in Referenzgröße (gecacht pro Text) */
 interface MkLayout {
@@ -171,6 +171,9 @@ const ROLES: Record<Role, RoleState> = {
 };
 
 const ANIM_S = 0.4; // 400ms wie im Original
+
+/** Schwarz (Taste S, z.B. für Solos): Dauer des Aus-/Einblendens in s */
+const BLANK_FADE_S = 0.3;
 
 /** Eine animierte Textzeile: blendet von einer Rolle zur nächsten */
 interface Sprite {
@@ -254,6 +257,10 @@ export class Schmalaoke implements Game {
   private mkLayouts = new Map<string, MkLayout>();
   /** Notfall-Durchsage: Text ('' = aus), verdrängt die Lyrics-Anzeige */
   private notice = '';
+  /** Schwarz: Lyrics ausgeblendet, Song läuft im Hintergrund weiter.
+   *  lyricFade gleitet zwischen 1 (sichtbar) und 0 (schwarz). */
+  private blank = false;
+  private lyricFade = 1;
   private noticeT0 = 0;
   /** Laufband-Zeile + gemessene Breite (Cache, neu bei Textänderung) */
   private noticeLine = '';
@@ -311,6 +318,9 @@ export class Schmalaoke implements Game {
       case 'hello':
         this.sendInputList();
         this.sendPresenter();
+        break;
+      case 'blank':
+        this.setBlank(!this.blank);
         break;
       case 'notice':
         this.setNotice(msg.text ?? '');
@@ -510,6 +520,9 @@ export class Schmalaoke implements Game {
 
   update(dt: number) {
     this.time += dt;
+    const fadeTo = this.blank ? 0 : 1;
+    const step = dt / BLANK_FADE_S;
+    this.lyricFade = this.lyricFade < fadeTo ? Math.min(fadeTo, this.lyricFade + step) : Math.max(fadeTo, this.lyricFade - step);
 
     // Beat-Detection: Audio abtasten, Grid weiterschalten (feuert onBeat)
     if (this.listening && this.analyser && this.freq) {
@@ -549,7 +562,7 @@ export class Schmalaoke implements Game {
 
     // Notfall-Durchsage hat Vorrang vor allem anderen
     if (this.notice) {
-      this.drawNotice(g);
+      this.drawNotice(g, ANCHOR_Y - NOTICE_BAR_H / 2, VIEW_W, NOTICE_BAR_H, LYRIC_SIZE, this.b1 ? NOTICE_BAR_B1 : NOTICE_BAR_B3);
       return;
     }
 
@@ -604,6 +617,7 @@ export class Schmalaoke implements Game {
    *  (<b> <i> <u>) werden als Segmente mit eigenem Schnitt gesetzt: fett =
    *  Black (900) statt Bold, kursiv = Italic, unterstrichen = Balken. */
   private drawLine(g: CanvasRenderingContext2D, text: string, state: RoleState, alpha: number) {
+    alpha *= this.lyricFade;
     if (!text || alpha <= 0.01) return;
     const segs = parseMarkup(text);
     if (!segs.length) return;
@@ -639,7 +653,7 @@ export class Schmalaoke implements Game {
 
   private renderMk(g: CanvasRenderingContext2D) {
     if (this.notice) {
-      this.drawNoticeMk(g);
+      this.drawNotice(g, MK_H - MK_NOTICE_BAR_H, MK_W, MK_NOTICE_BAR_H, MK_NOTICE_SIZE, NOTICE_BAR_B1);
       return;
     }
     if (this.errorText) {
@@ -693,7 +707,7 @@ export class Schmalaoke implements Game {
     const b = MK_SLOTS[i1];
     const y = a.y + (b.y - a.y) * f;
     const size = a.size + (b.size - a.size) * f;
-    const alpha = a.alpha + (b.alpha - a.alpha) * f;
+    const alpha = (a.alpha + (b.alpha - a.alpha) * f) * this.lyricFade;
     if (!text || alpha <= 0.01) return;
 
     const lay = this.mkLayout(g, text);
@@ -777,34 +791,6 @@ export class Schmalaoke implements Game {
     return lay;
   }
 
-  /** Durchsage im Quadrat: Text umgebrochen auf rotem Block, mittig. Zu
-   *  viel Text schrumpft, bis er ins Bild passt. */
-  private drawNoticeMk(g: CanvasRenderingContext2D) {
-    const paras = this.notice
-      .split('\n')
-      .map((l) => l.trim().replace(/\s+/g, ' '))
-      .filter(Boolean);
-    if (!paras.length) return;
-    g.save();
-    let size = MK_NOTICE_SIZE;
-    let rows: string[] = [];
-    for (; size >= 32; size -= 8) {
-      g.font = `700 ${size}px 'TheSans', system-ui, sans-serif`;
-      rows = paras.flatMap((p) => wrapWords(g, p, MK_MAX_W));
-      if (rows.length * size * MK_LINE_H + 2 * MK_NOTICE_PAD <= MK_H) break;
-    }
-    const lh = size * MK_LINE_H;
-    const h = rows.length * lh + 2 * MK_NOTICE_PAD;
-    const top = (MK_H - h) / 2;
-    g.fillStyle = NOTICE_BAR_B1;
-    g.fillRect(0, top, MK_W, h);
-    g.fillStyle = '#ffffff';
-    g.textAlign = 'center';
-    g.textBaseline = 'middle';
-    rows.forEach((r, i) => g.fillText(r, MK_W / 2, top + MK_NOTICE_PAD + (i + 0.5) * lh));
-    g.restore();
-  }
-
   /* ---------- Notfall-Durchsage ---------- */
 
   private setNotice(text: string) {
@@ -814,23 +800,26 @@ export class Schmalaoke implements Game {
     this.sendPresenter();
   }
 
-  private drawNotice(g: CanvasRenderingContext2D) {
+  /** Laufband auf vollbreitem Balken (top/h in View-Koordinaten). Tempo
+   *  und Lücke skalieren mit der Schriftgröße, damit gleich viele Zeichen
+   *  pro Sekunde durchlaufen wie im Festival-Layout. */
+  private drawNotice(g: CanvasRenderingContext2D, top: number, w: number, h: number, size: number, color: string) {
     g.save();
     // Balken zeichnen, Laufband darauf clippen
-    const top = ANCHOR_Y - NOTICE_BAR_H / 2;
-    g.fillStyle = this.b1 ? NOTICE_BAR_B1 : NOTICE_BAR_B3;
-    g.fillRect(0, top, VIEW_W, NOTICE_BAR_H);
+    g.fillStyle = color;
+    g.fillRect(0, top, w, h);
     g.beginPath();
-    g.rect(0, top, VIEW_W, NOTICE_BAR_H);
+    g.rect(0, top, w, h);
     g.clip();
     g.fillStyle = '#ffffff';
     g.textAlign = 'left';
     g.textBaseline = 'middle';
-    g.font = `700 ${LYRIC_SIZE}px 'TheSans', system-ui, sans-serif`;
+    g.font = `700 ${size}px 'TheSans', system-ui, sans-serif`;
 
     // Laufband-Text: Absätze zu einer Zeile verbinden, Breite einmal messen
-    if (this.noticeKey !== this.notice) {
-      this.noticeKey = this.notice;
+    const key = `${size}|${this.notice}`;
+    if (this.noticeKey !== key) {
+      this.noticeKey = key;
       this.noticeLine = this.notice
         .split('\n')
         .map((l) => l.trim().replace(/\s+/g, ' '))
@@ -845,10 +834,11 @@ export class Schmalaoke implements Game {
 
     // Startet am rechten Bildrand, fährt nach links; Kopien im Abstand
     // period, damit nach der Lücke nahtlos die nächste Runde folgt
-    const period = this.noticeWidth + NOTICE_GAP;
-    const offset = (Math.max(0, this.time - this.noticeT0) * NOTICE_SPEED) % period;
-    const y = ANCHOR_Y;
-    for (let x = VIEW_W - offset; x + this.noticeWidth > 0; x -= period) g.fillText(this.noticeLine, x, y);
+    const k = size / LYRIC_SIZE;
+    const period = this.noticeWidth + NOTICE_GAP * k;
+    const offset = (Math.max(0, this.time - this.noticeT0) * NOTICE_SPEED * k) % period;
+    const y = top + h / 2;
+    for (let x = w - offset; x + this.noticeWidth > 0; x -= period) g.fillText(this.noticeLine, x, y);
     g.restore();
   }
 
@@ -868,6 +858,8 @@ export class Schmalaoke implements Game {
   /* ---------- State-Machine (portiert aus main.js) ---------- */
 
   private resetForNewSong() {
+    this.blank = false;
+    this.lyricFade = 1;
     this.lines = [];
     this.currentLine = 0;
     this.pendingJump = -1;
@@ -915,8 +907,18 @@ export class Schmalaoke implements Game {
     this.mkTarget = this.currentLine;
   }
 
+  /** Schwarz an/aus (Taste S) */
+  private setBlank(on: boolean) {
+    if (this.blank === on) return;
+    this.blank = on;
+    this.sendPresenter();
+  }
+
   private handleSpace() {
     if (this.errorText) return;
+    // Nach Schwarz (Solo vorbei): einblenden UND normal weiterschalten —
+    // man will dann meist die nächste Zeile sehen, nicht die alte
+    this.setBlank(false);
     // Leertasten zählen: erst die ARM_SPACES-te gibt Auto frei. Bei festem
     // BPM wird das Grid genau auf diesen Druck ausgerichtet — der Beat
     // liegt dann phasengleich zum Operator, nicht zum Zeitpunkt der Eingabe
@@ -1063,6 +1065,7 @@ export class Schmalaoke implements Game {
       autoSpaces: this.autoSpaces,
       refBpm: this.refBpm,
       notice: this.notice,
+      blank: this.blank,
     });
   }
 }
@@ -1070,21 +1073,4 @@ export class Schmalaoke implements Game {
 /** Schrift einer Lyrics-Zeile im Mitsingkonzert (Referenzgröße) */
 function mkFont(s: Segment): string {
   return `${s.i ? 'italic ' : ''}${s.b ? 900 : 700} ${MK_REF_SIZE}px 'TheSans', system-ui, sans-serif`;
-}
-
-/** Einfacher Wort-Umbruch für reinen Text (aktueller Font in g) */
-function wrapWords(g: CanvasRenderingContext2D, text: string, maxW: number): string[] {
-  const rows: string[] = [];
-  let line = '';
-  for (const word of text.split(' ')) {
-    const next = line ? `${line} ${word}` : word;
-    if (line && g.measureText(next).width > maxW) {
-      rows.push(line);
-      line = word;
-    } else {
-      line = next;
-    }
-  }
-  if (line) rows.push(line);
-  return rows;
 }
