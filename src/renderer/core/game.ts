@@ -1,4 +1,5 @@
 import type { Input } from './input';
+import type { CheerAnchor } from './cheer';
 
 // Virtuelle Auflösung: alle Games rendern in 1200x1920 (10:16 Hochformat
 // für die Ziel-Videowalls),
@@ -90,6 +91,9 @@ export interface Game {
   setStationMode?(mode: StationMode): void;
   /** Live-Status fürs Operator-Fenster */
   getStatus?(): Record<string, string | number>;
+  /** Freie Fläche für globale Kommentare (CheerOverlay) — darf vom Modus
+   *  abhängen. Ohne den Hook steht der Kommentar oben mittig. */
+  cheerAnchor?(): CheerAnchor;
 }
 
 export interface GameEntry {

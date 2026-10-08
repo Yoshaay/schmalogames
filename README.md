@@ -97,9 +97,9 @@ tanzt im Takt der Musik.
 - **Sync einpegeln:** Button „Sync-Debug“ im Groove-Panel blendet auf der
   Wall einen Beat-Blitz + Metronom-Punkt ein. Sync-Offset-Regler schieben,
   bis der Punkt exakt auf dem hörbaren Beat trifft.
-- **Auszeichnungen:** Vier Banner (Tanzgott, Groove-Legende, Tanzmaschine,
-  Disco-Fieber) über der Livebild-Fläche, dazu ein Speedburst über der
-  Publikumscam-Fläche — alles auf den Hotkeys 1–5.
+- **Auszeichnungen:** Tanzgott & Co. sind jetzt globale Kommentare (siehe
+  unten) und erscheinen über der Livebild-Fläche. Der Speedburst über der
+  Publikumscam-Fläche liegt auf Hotkey 1.
 - **Moves:** Acht prozedurale Posen (ein neunter, der Rasenmäher, ist per
   `disabled` aus der Rotation genommen), Wechsel taktgerecht etwa alle 30 s
   (`MOVE_SECONDS`); im Panel lassen sich einzelne Posen zum Review anwählen.
@@ -256,3 +256,39 @@ Funktional komplett fürs Proben, Packaging als App steht (`npm run dist`).
 Offen für den Show-Betrieb: automatisches Vollbild auf dem richtigen
 Display + Sleep-Blocker, Crash-Recovery, Keying-Test an echter
 Ü-Wagen-Technik.
+
+## Show-Schublade: Kommentare & Effekte (alle Spiele)
+
+Button **„Show“** in der Kopfzeile bzw. Taste **F** (auch aus dem
+Wall-Fenster) öffnet die Schublade, **Esc** oder F schließt sie. Sie fährt
+über das Layout, und zwar auf der Seite gegenüber der Vorschau (bei
+Schmalaoke von links). Alles darin liegt über jedem laufenden Spiel und
+wird vom Host gezeichnet (`core/cheer.ts`, `core/fx.ts`). Die Hotkeys gehen
+auch bei zugeklappter Schublade.
+
+**Kommentare**
+- Liste per „Bearbeiten“ anpassbar (wird gespeichert), dazu ein
+  Freitextfeld (⏎ zeigt). Texte erscheinen in Versalien.
+- **⇧1–⇧9** sind pro Kommentar frei belegbar (Dropdown beim Bearbeiten;
+  eine schon vergebene Taste wechselt zum neuen Eintrag), die Buttons
+  stehen nach Taste sortiert. **⇧0** blendet aus. Denselben Kommentar
+  nochmal drücken blendet ihn vorzeitig aus.
+- Anzeigedauer wählbar (3–15 s).
+- Farben im Wechsel: BAYERN 3 Magenta/Blau, BAYERN 1/Mitsingkonzert
+  Blau `#00a0d5`/Koralle `#e24f36`.
+
+**Effekte**
+- **⇧Q Konfetti** (wie beim Applausometer-Gewinn), **⇧W Dreiecks-Explosion**
+  (große Dreiecke fliegen ringförmig auseinander), **⇧E Dreiecks-Regen**
+  (4 s, nochmal drücken verlängert bis 8 s).
+- Farben: BAYERN 3 CI-Palette, BAYERN 1/Mitsingkonzert B1-Palette
+  (`#00a0d5`, `#00bef5`, `#001e46`, `#e24f36`).
+
+**Formen je Sender:** BAYERN 3 arbeitet mit Dreiecken, BAYERN 1 und das
+Mitsingkonzert mit der abgerundeten Raute aus dem B1-Logo (`core/shapes.ts`,
+vermessen an `BR1_lang_250201_ws_rgb.svg`): stehend, Höhe : Breite ≈ 1,265,
+die Rundung wächst mit der Raute mit (CI: 6,5 mm bei A4, proportional). Die
+Effekte heißen in B1 entsprechend „Rauten-Explosion“ / „Rauten-Regen“.
+
+Kommentare und Effekte entstehen an der freien Stelle, die jedes Spiel über
+`Game.cheerAnchor()` meldet. Ohne den Hook ist das oben mittig.

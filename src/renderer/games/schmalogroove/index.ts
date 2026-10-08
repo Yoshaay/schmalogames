@@ -1,5 +1,5 @@
 import { GameEntry } from '../../core/game';
-import { CHEERS, Schmalogroove } from './schmalogroove';
+import { Schmalogroove } from './schmalogroove';
 import { buildGroovePanel } from './operator-panel';
 
 /**
@@ -16,14 +16,12 @@ export const schmalogrooveEntry: GameEntry = {
     { key: 'sens', label: 'Beat-Empfindlichkeit', min: 110, max: 180, step: 1, default: 135 },
     { key: 'moves', label: 'Move-Intensität', min: 20, max: 150, step: 5, default: 100, unit: '%' },
     { key: 'sync', label: 'Sync-Offset', min: 0, max: 1000, step: 5, default: 0, unit: 'ms' },
-    { key: 'cheerDur', label: 'Auszeichnungs-Dauer', min: 2, max: 15, step: 1, default: 5, unit: 's' },
   ],
-  // Auszeichnungen: Klick = an (mit Konfetti), nochmal Klick = aus.
-  // Der Burst zündet unabhängig davon über der Publikumscam-Fläche.
+  // Auszeichnungen („Tanzgott“ …) sind globale Kommentare (Operator-Panel
+  // „Kommentare“). Der Burst zündet über der Publikumscam-Fläche.
   // Sync-Debug bewusst NICHT hier (kein Hotkey, kein Button zwischen den
   // Show-Aktionen) — der Toggle sitzt in der Kopfzeile des Operators
   actions: [
-    ...CHEERS.map((cheer, i) => ({ id: `cheer${i}`, label: cheer })),
     { id: 'burst', label: 'Speedburst (Publikumscam)' },
   ],
   buildOperatorPanel: buildGroovePanel,

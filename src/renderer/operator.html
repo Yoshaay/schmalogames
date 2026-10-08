@@ -446,6 +446,215 @@
         cursor: pointer;
       }
 
+      /* ---------- Show-Schublade (Kommentare + Effekte) ---------- */
+      #show-drawer {
+        position: fixed;
+        top: var(--drawer-top, 80px);
+        bottom: 0;
+        right: 0;
+        z-index: 50;
+        width: 400px;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        overflow-y: auto;
+        background: rgba(14, 15, 19, 0.96);
+        border-left: 1px solid var(--panel-edge);
+        box-shadow: -12px 0 32px rgba(0, 0, 0, 0.5);
+        transform: translateX(100%);
+        visibility: hidden;
+        transition:
+          transform 0.2s ease,
+          visibility 0.2s;
+      }
+      /* Schmalaoke: Vorschau steht rechts → Schublade kommt von links */
+      body.drawer-left #show-drawer {
+        right: auto;
+        left: 0;
+        border-left: none;
+        border-right: 1px solid var(--panel-edge);
+        box-shadow: 12px 0 32px rgba(0, 0, 0, 0.5);
+        transform: translateX(-100%);
+      }
+      body.show-open #show-drawer {
+        transform: none;
+        visibility: visible;
+      }
+      #show-drawer > .panel {
+        flex-shrink: 0;
+      }
+      #show-toggle .key {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        color: var(--ink-dim);
+        border: 1px solid var(--panel-edge);
+        border-radius: 3px;
+        padding: 1px 4px;
+      }
+      body.show-open #show-toggle {
+        color: var(--primary);
+        border-color: rgba(var(--primary-rgb), 0.4);
+        background: rgba(var(--primary-rgb), 0.1);
+      }
+      #fx-list {
+        display: grid;
+        gap: 6px;
+      }
+      .btn-fx {
+        justify-content: flex-start;
+        font-weight: 600;
+        color: var(--primary);
+        border-color: rgba(var(--primary-rgb), 0.4);
+      }
+      .btn-fx.hit {
+        animation: action-hit 0.2s ease;
+      }
+      .btn-fx .key {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        color: var(--ink-dim);
+        border: 1px solid var(--panel-edge);
+        border-radius: 3px;
+        padding: 1px 4px;
+      }
+      /* Effekt-Namen je Sender: BAYERN 3 Dreiecke, BAYERN 1 Rauten */
+      .lbl-b1,
+      body.mode-b1 .lbl-b3,
+      body.mode-mk .lbl-b3 {
+        display: none;
+      }
+      body.mode-b1 .lbl-b1,
+      body.mode-mk .lbl-b1 {
+        display: inline;
+      }
+      #show-hint {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--ink-dim);
+      }
+
+      /* ---------- Kommentare (global, über jedem Spiel) ---------- */
+      #cheer-panel h2 button {
+        height: 22px;
+        padding: 0 8px;
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.12em;
+        color: var(--ink-dim);
+        order: 1; /* rechts neben der Linie */
+      }
+      #cheer-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        gap: 6px;
+        margin-bottom: 8px;
+      }
+      .btn-cheer {
+        justify-content: flex-start;
+        min-width: 0;
+        padding: 0 10px;
+        font-weight: 600;
+        color: var(--primary);
+        border-color: rgba(var(--primary-rgb), 0.4);
+      }
+      .btn-cheer .label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .btn-cheer .key,
+      #cheer-off .key {
+        flex-shrink: 0;
+        font-family: var(--font-mono);
+        font-size: 10px;
+        color: var(--ink-dim);
+        border: 1px solid var(--panel-edge);
+        border-radius: 3px;
+        padding: 1px 4px;
+      }
+      /* gerade auf der Wall */
+      .btn-cheer.on {
+        color: #ffffff;
+        background: var(--live);
+        border-color: var(--live);
+      }
+      .btn-cheer.on .key {
+        color: #ffffff;
+        border-color: rgba(255, 255, 255, 0.5);
+      }
+      .btn-cheer.hit {
+        animation: action-hit 0.2s ease;
+      }
+      /* Bearbeiten: Textfeld + Löschen je Eintrag */
+      .cheer-edit-row {
+        display: flex;
+        gap: 6px;
+        grid-column: 1 / -1;
+      }
+      #cheer-panel input[type='text'] {
+        flex: 1;
+        min-width: 0;
+        height: 34px;
+        padding: 0 10px;
+        font-family: var(--font-body);
+        font-size: 13px;
+        color: var(--ink);
+        background: #1d2029;
+        border: 1px solid var(--panel-edge);
+        border-radius: 4px;
+      }
+      #cheer-panel input[type='text']:focus {
+        border-color: var(--primary);
+        outline: none;
+      }
+      .cheer-edit-row button {
+        width: 34px;
+        padding: 0;
+      }
+      .cheer-edit-row select {
+        flex: none;
+        width: 58px;
+        height: 34px;
+        padding: 0 4px;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--ink);
+        background: #1d2029;
+        border: 1px solid var(--panel-edge);
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      .cheer-free,
+      .cheer-foot {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+      .cheer-foot {
+        margin-top: 8px;
+        justify-content: space-between;
+      }
+      .cheer-foot label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        letter-spacing: 0.15em;
+        color: var(--ink-dim);
+      }
+      .cheer-foot select {
+        font: inherit;
+        color: var(--ink);
+        background: #1d2029;
+        border: 1px solid var(--panel-edge);
+        border-radius: 4px;
+        height: 30px;
+        padding: 0 6px;
+        cursor: pointer;
+      }
+
       /* ---------- Debug-Panel (Netz/NDI-Infos für den Ü-Wagen-Test) ---------- */
       button.debug-on {
         color: var(--primary);
@@ -832,10 +1041,47 @@
         Stanzmaske
       </button>
       <button id="fullscreen">Wall-Vollbild</button>
+      <button id="show-toggle" title="Show-Schublade: Kommentare und Effekte (F, schließen mit Esc)">Show <span class="key">F</span></button>
       <button id="debug" title="Debug-Infos: IP-Adressen, NDI-Quellenname, Verbindungen, Frame-Rate, Displays (⌘/Strg+D)">
         Debug
       </button>
     </header>
+
+    <!-- Show-Schublade: Kommentare + Effekte, liegen über jedem Spiel.
+         Fährt über das Layout (auf der Seite gegenüber der Vorschau) und
+         verschwindet wieder — die Hotkeys gehen auch zugeklappt. -->
+    <aside id="show-drawer" aria-hidden="true">
+      <div class="panel" id="cheer-panel">
+        <h2>Kommentare <button id="cheer-edit" title="Liste bearbeiten">BEARBEITEN</button></h2>
+        <div id="cheer-list"></div>
+        <div class="cheer-free">
+          <input type="text" id="cheer-text" placeholder="Freitext … ⏎" spellcheck="false" />
+          <button id="cheer-send">Zeigen</button>
+        </div>
+        <div class="cheer-foot">
+          <label
+            >Dauer
+            <select id="cheer-dur">
+              <option value="3">3 s</option>
+              <option value="5">5 s</option>
+              <option value="8">8 s</option>
+              <option value="10">10 s</option>
+              <option value="15">15 s</option>
+            </select>
+          </label>
+          <button id="cheer-off" title="Kommentar ausblenden (⇧0)">Aus <span class="key">⇧0</span></button>
+        </div>
+      </div>
+      <div class="panel" id="fx-panel">
+        <h2>Effekte</h2>
+        <div id="fx-list">
+          <button class="btn-fx" data-fx="confetti"><span class="key">⇧Q</span><span class="label">Konfetti</span></button>
+          <button class="btn-fx" data-fx="explode"><span class="key">⇧W</span><span class="label"><span class="lbl-b3">Dreiecks-Explosion</span><span class="lbl-b1">Rauten-Explosion</span></span></button>
+          <button class="btn-fx" data-fx="rain"><span class="key">⇧E</span><span class="label"><span class="lbl-b3">Dreiecks-Regen</span><span class="lbl-b1">Rauten-Regen</span></span></button>
+        </div>
+      </div>
+      <div class="hint" id="show-hint">Kein Spiel aktiv — Kommentare und Effekte erscheinen nur über einem laufenden Spiel.</div>
+    </aside>
 
     <div id="debug-panel" hidden>
       <div id="debug-info"><div class="hint">Lade …</div></div>
@@ -896,6 +1142,7 @@
         <div class="panel">
           <h2>Aktionen</h2>
           <div id="actions"><div class="hint">—</div></div>
+        </div>
         </div>
       </div>
     </main>

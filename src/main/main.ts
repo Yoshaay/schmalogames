@@ -61,7 +61,7 @@ function createWindows() {
   wall.on('leave-full-screen', sendFullscreenState);
   operator.webContents.on('did-finish-load', sendFullscreenState);
 
-  // Hotkeys 1–9 (Spiel-Aktionen) und F11 (Wall-Vollbild) funktionieren in
+  // Hotkeys 1–9 (Spiel-Aktionen), ⇧0–⇧9 (Kommentare), ⇧Q/W/E (Effekte) und F11 (Wall-Vollbild) funktionieren in
   // beiden Fenstern — egal, welches gerade den Fokus hat. Bewusst per
   // before-input-event statt globalShortcut: der würde SYSTEMWEIT feuern,
   // auch wenn eine ganz andere App den Fokus hat.
@@ -73,6 +73,19 @@ function createWindows() {
         return;
       }
       if (input.control || input.meta || input.alt) return;
+      // ⇧0–⇧9: globale Kommentare — über den Tasten-Code, weil ⇧1 je nach
+      // Tastaturbelegung ein anderes Zeichen liefert („!“)
+      if (input.shift) {
+        const m = /^Digit([0-9])$/.exec(input.code);
+        if (m && operator && !operator.isDestroyed()) {
+          operator.webContents.send('msg', { type: 'cheer-hotkey', key: Number(m[1]) });
+        }
+        // ⇧Q/⇧W/⇧E: globale Effekte
+        if (['KeyQ', 'KeyW', 'KeyE'].includes(input.code) && operator && !operator.isDestroyed()) {
+          operator.webContents.send('msg', { type: 'fx-hotkey', code: input.code });
+        }
+        return;
+      }
       if (!/^[1-9]$/.test(input.key)) return;
       if (operator && !operator.isDestroyed()) {
         operator.webContents.send('msg', { type: 'hotkey', key: Number(input.key) });
@@ -84,7 +97,7 @@ function createWindows() {
   // fokussierter WALL abfangen und ans Operator-Panel weiterreichen. Nur von
   // der Wall — im Operator übernimmt der lokale Handler (kennt Eingabefelder
   // & Buttons).
-  const GAME_KEYS = new Set(['Space', 'ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'KeyN', 'KeyB', 'KeyS', 'KeyR', 'KeyA', 'KeyT', 'Home']);
+  const GAME_KEYS = new Set(['Space', 'ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'KeyN', 'KeyB', 'KeyS', 'KeyR', 'KeyA', 'KeyT', 'KeyF', 'Home']);
   wall.webContents.on('before-input-event', (_event, input) => {
     if (input.type !== 'keyDown' || input.isAutoRepeat) return;
     if (input.control || input.meta || input.alt) return;

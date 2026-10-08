@@ -1,5 +1,7 @@
 import { Game, GameContext, GameEntry, MK_H, MK_W, SettingValues, StationMode, VIEW_W, VIEW_H, parseStationMode } from './game';
 import { Input } from './input';
+import { CheerOverlay } from './cheer';
+import { FxId, ShowFx } from './fx';
 
 /** Ausgabeformat Festival (BAYERN 3 / BAYERN 1): normales FHD-Signal 16:9
  *  (1920×1080) für die Anlieferung — der Ü-Wagen croppt sich den Wall-
@@ -81,6 +83,10 @@ export class GameHost {
   private values: SettingValues = {};
   private lastTime = 0;
   private stateTimer = 0;
+  /** Globale Kommentare — liegen über jedem Spiel (Operator-Panel „Kommentare“) */
+  private cheer = new CheerOverlay();
+  /** Globale Show-Effekte (Konfetti, Dreiecks-Regen, …) — unter dem Kommentar */
+  private fx = new ShowFx();
 
   // Live-Vorschau: der Canvas wird per WebRTC als Videostream
   // ans Operator-Fenster gestreamt (Signaling über den Nachrichtenkanal)
@@ -165,6 +171,17 @@ export class GameHost {
       }
       case 'action':
         this.current?.action?.(msg.id as string);
+        break;
+      case 'cheer': {
+        // Kommentar aus dem Operator: Text + Listenplatz (Farbe) + Dauer;
+        // ohne Text = ausblenden
+        const text = typeof msg.text === 'string' ? msg.text : '';
+        if (text && this.current) this.cheer.show(text, Number(msg.color) || 0, Number(msg.duration) || 5);
+        else this.cheer.hide();
+        break;
+      }
+      case 'fx':
+        if (this.current) this.fx.fire(msg.id as FxId, this.cheerAnchor(), this.viewW, this.viewH, this.stationMode);
         break;
       case 'mask':
         this.maskMode = msg.on === true;
@@ -294,6 +311,9 @@ export class GameHost {
     this.current?.dispose?.();
     // Show-Sicherheit: die Maske nie versehentlich in den Spielstart mitnehmen
     this.maskMode = false;
+    // Kommentar vom vorigen Spiel nicht mitnehmen
+    this.cheer = new CheerOverlay();
+    this.fx = new ShowFx();
     this.entry = entry;
     this.values = this.loadValues(entry);
     this.current = entry.create();
@@ -308,6 +328,8 @@ export class GameHost {
     this.entry = null;
     this.values = {};
     this.maskMode = false;
+    this.cheer = new CheerOverlay();
+    this.fx = new ShowFx();
     this.sendState();
   }
 
@@ -319,6 +341,7 @@ export class GameHost {
       status: this.current?.getStatus?.() ?? {},
       mask: this.maskMode,
       ndiFps: this.ndiFps,
+      cheer: this.cheer.current,
     });
   }
 
@@ -377,6 +400,11 @@ export class GameHost {
     }
   }
 
+  /** Freie Fläche des Spiels für Kommentare/Effekte — ohne Hook oben mittig */
+  private cheerAnchor() {
+    return this.current?.cheerAnchor?.() ?? { x: this.viewW / 2, y: this.viewH * 0.25, maxW: this.viewW * 0.7 };
+  }
+
   run() {
     const frame = (time: number) => {
       // dt deckeln: nach Rucklern keine Riesensprünge
@@ -384,11 +412,20 @@ export class GameHost {
       this.lastTime = time;
 
       this.current?.update(dt);
+      this.cheer.update(dt);
+      this.fx.update(dt);
 
       // Das Game rendert in die virtuelle 10:16-View …
       this.vg.setTransform(1, 0, 0, 1, 0, 0);
       this.vg.clearRect(0, 0, this.viewW, this.viewH);
-      this.current?.render(this.vg);
+      if (this.current) {
+        this.current.render(this.vg);
+        // … Show-Effekte und globaler Kommentar obendrauf, an der freien
+        // Stelle des Spiels
+        this.vg.setTransform(1, 0, 0, 1, 0, 0);
+        this.fx.render(this.vg);
+        this.cheer.render(this.vg, this.cheerAnchor(), this.stationMode);
+      }
 
       // … der Host komponiert daraus das FHD-16:9-Anlieferungsbild
       this.composite(this.og, this.view);

@@ -26,6 +26,9 @@ const SCALE_BOTTOM = 1442;
 const SCALE_TOP = 214;
 // Mitte der freien (transparenten) Fläche rechts — Konfetti-Ursprung
 const NUM_X = 840;
+// Globale Kommentare: in der freien Livebild-Fläche rechts neben der pinken
+// Schräge (die läuft bei y≈760 etwa durch x≈520)
+const CHEER_ANCHOR = { x: 880, y: 760, maxW: 560 };
 
 export class Applausometer implements Game {
   private state: State = 'playing';
@@ -63,6 +66,10 @@ export class Applausometer implements Game {
     this.ctx = ctx;
     this.bg.src = bgUrl;
     this.text.src = textUrl;
+  }
+
+  cheerAnchor() {
+    return CHEER_ANCHOR;
   }
 
   applySettings(values: SettingValues) {

@@ -19,7 +19,7 @@ import textUrl from './assets/final/Danceding_hk_text.png';
  * HG → Sonare → Schrift). Kanten aus dem 641×1025-Export vermessen und
  * mit ×1,873 in View-Koordinaten umgerechnet.
  *
- * Layout: Avatar-Position, Kamera-Abstand (= Größe), Auszeichnung (Mitte +
+ * Layout: Avatar-Position, Kamera-Abstand (= Größe), Kommentar-Stelle (Mitte +
  * max. Textbreite) und Burst-Zentrum (freie Bühnenfläche — der Burst liegt
  * UNTER dem HG-Asset, dessen deckende Flächen maskieren ihn automatisch). */
 const LAYOUT = {
@@ -27,7 +27,7 @@ const LAYOUT = {
   // Füße über dem "Tanz mit!"-Schriftzug (Text-BBox y ≈ 1781–1843)
   stage: [300, 1440],
   camZ: 8.0,
-  // Auszeichnung ("Tanzmaschine", "Groove-Legende", …) oben über der
+  // Globale Kommentare ("Tanzgott", Freitext, …) oben über der
   // Livebild-Fläche, unterhalb des Logo-Banners
   cheer: [660, 480],
   cheerMaxW: 700,
@@ -53,9 +53,6 @@ const LAYOUT = {
 const STAGE_CENTER_X = LAYOUT.stage[0];
 const STAGE_CENTER_Y = LAYOUT.stage[1];
 const CAM_Z = LAYOUT.camZ;
-const CHEER_X = LAYOUT.cheer[0];
-const CHEER_Y = LAYOUT.cheer[1];
-const CHEER_MAX_W = LAYOUT.cheerMaxW;
 const BURST_X = LAYOUT.burst[0];
 const BURST_Y = LAYOUT.burst[1];
 // groß genug, dass die quadratische Canvas-Kante komplett außerhalb der
@@ -91,24 +88,6 @@ const RIPPLE_MIN_R = 40;
 /** Ringfarben — pro Beat und pro Sonar unabhängig gewürfelt
  *  (kein Grün — ginge auf dem Grün unter) */
 const RIPPLE_COLORS = ['#2699d6', '#f9b233', '#e71d73'];
-
-/** Auszeichnungen: je ein Operator-Button, togglebar */
-export const CHEERS = ['TANZGOTT', 'GROOVE-LEGENDE', 'TANZMASCHINE', 'DISCO-FIEBER'];
-/** Knallfarbe pro Auszeichnung (BR3-Palette), Index parallel zu CHEERS.
- *  Kein Hellgrün — das ginge auf dem grünen Hintergrund unter. */
-const CHEER_COLORS = ['#e71d73', '#2699d6', '#2699d6', '#e71d73'];
-
-// Ein-/Ausblend-Zeiten der Auszeichnung: Dreieck-Welle von links nach rechts
-const CHEER_IN = 0.65;
-const CHEER_OUT = 0.5;
-
-const clamp01 = (t: number) => Math.min(1, Math.max(0, t));
-/** Ease-out-back: schwingt kurz über 1 hinaus (Pop) */
-const backOut = (t: number) => {
-  const c1 = 1.70158;
-  const u = t - 1;
-  return 1 + (c1 + 1) * u * u * u + c1 * u * u;
-};
 
 /** Nachrichten vom Operator-Panel (operator-panel.ts) */
 interface Cmd {
@@ -174,26 +153,8 @@ export class Schmalogroove implements Game {
   /* ---------- Sync-Debug: Blink-Signal auf dem visuellen Beat ---------- */
   private debugSync = false;
 
-  /* ---------- Auszeichnung (Cheer) ---------- */
-  /** Gewürfeltes Dreieck-Layout des Backdrops (pro Aktivierung neu) */
-  private cheerTris: Array<{
-    xJit: number;
-    y: number;
-    rf: number;
-    rot: number;
-    delay: number;
-    accent: boolean;
-    u: number;
-    /** Phase fürs Schweben/Drehen im Stand */
-    ph: number;
-  }> = [];
-  private cheer: string | null = null;
   /** Goldstreifen-Burst über der Publikumscam-Fläche */
   private burst = new SpeedBurst(BURST_SIZE);
-  /** Restlaufzeit — die Schrift verschwindet von selbst */
-  private cheerTimer = 0;
-  /** Anzeigedauer in s (Operator-Regler) */
-  private cheerDuration = 5;
 
   /* ---------- Beat-Dreiecke (Kanten-Emitter) ---------- */
   /** Sonar-Ringe: Alter in s + ob Takt-„1" (kräftig/pink). Pro Sonar eine
@@ -255,7 +216,6 @@ export class Schmalogroove implements Game {
     this.engine.sensitivity = values.sens ?? this.engine.sensitivity;
     this.moveAmp = (values.moves ?? this.moveAmp * 100) / 100;
     this.engine.offsetMs = values.sync ?? this.engine.offsetMs;
-    this.cheerDuration = values.cheerDur ?? this.cheerDuration;
   }
 
   action(id: string) {
@@ -267,54 +227,11 @@ export class Schmalogroove implements Game {
       this.debugSync = !this.debugSync;
       return;
     }
-    if (!id.startsWith('cheer')) return;
-    const text = CHEERS[Number(id.slice(5))] ?? CHEERS[0];
-    if (this.cheer === text) {
-      // Nochmal gedrückt: vorzeitig aus — Zoom-out abspielen
-      this.cheerTimer = Math.min(this.cheerTimer, CHEER_OUT);
-    } else {
-      this.cheer = text;
-      this.cheerTimer = this.cheerDuration;
-      this.cheerTris = this.makeCheerLayout();
-      // bewusst KEIN Konfetti mehr zur Auszeichnung — war dem User zu wild
-    }
   }
 
-  /**
-   * Backdrop-Layout würfeln: eine Reihe verschieden großer Dreiecke
-   * (▲▼ alternierend, mit Streuung) plus kleine Akzent-Dreiecke drumherum.
-   * Normalisiert auf die Bandbreite — skaliert wird beim Rendern.
-   */
-  private makeCheerLayout() {
-    const tris: typeof this.cheerTris = [];
-    // Rückgrat: bis zu 24 Plätze, beim Rendern wird passend zur Textbreite gekürzt
-    for (let i = 0; i < 24; i++) {
-      tris.push({
-        u: 0, // wird beim Rendern aus dem Index berechnet
-        xJit: (Math.random() - 0.5) * 0.015,
-        y: (Math.random() - 0.5) * 22,
-        rf: Math.random(), // Größenfaktor 0..1
-        rot: (Math.random() - 0.5) * 0.22,
-        delay: 0,
-        accent: false,
-        ph: Math.random() * Math.PI * 2,
-      });
-    }
-    // Akzente: kleine Dreiecke ober-/unterhalb des Bands
-    for (let i = 0; i < 7; i++) {
-      const above = Math.random() < 0.5;
-      tris.push({
-        u: 0.06 + Math.random() * 0.88,
-        xJit: 0,
-        y: above ? -92 - Math.random() * 26 : 88 + Math.random() * 26,
-        rf: Math.random(),
-        rot: Math.random() * Math.PI * 2,
-        delay: 0,
-        accent: true,
-        ph: Math.random() * Math.PI * 2,
-      });
-    }
-    return tris;
+  /** Globale Kommentare stehen oben über der Livebild-Fläche */
+  cheerAnchor() {
+    return { x: LAYOUT.cheer[0], y: LAYOUT.cheer[1], maxW: LAYOUT.cheerMaxW };
   }
 
   onMessage(payload: unknown) {
@@ -378,7 +295,6 @@ export class Schmalogroove implements Game {
               : 'bereit',
       BPM: this.engine.bpm > 0 ? Math.round(this.engine.bpm) : '—',
       Move: this.dancer.moveName,
-      Auszeichnung: this.cheer ?? '—',
       ...(this.debugSync ? { 'Sync-Debug': 'AN' } : {}),
     };
   }
@@ -416,13 +332,6 @@ export class Schmalogroove implements Game {
     // Sonar-Ringe altern
     for (const r of this.ripples) r.age += dt;
     this.ripples = this.ripples.filter((r) => r.age < RIPPLE_LIFE);
-
-    if (this.cheer) {
-      this.cheerTimer -= dt;
-      if (this.cheerTimer <= 0) {
-        this.cheer = null; // automatisch ausblenden
-      }
-    }
 
     // Kamera schwebt leicht
     this.camera.position.x = Math.sin(this.time * 0.15) * 0.5;
@@ -479,8 +388,7 @@ export class Schmalogroove implements Game {
     }
 
     g.drawImage(this.glCanvas, 0, 0, VIEW_W, VIEW_H);
-    // Ebene 4: Auszeichnung obendrauf
-    this.renderCheer(g);
+    // (Ebene 4: globaler Kommentar — zeichnet der Host obendrauf)
     if (this.debugSync) this.renderSyncDebug(g);
   }
 
@@ -672,100 +580,6 @@ export class Schmalogroove implements Game {
     g.strokeText(info, cx, cy + 145);
     g.fillStyle = '#ffffff';
     g.fillText(info, cx, cy + 145);
-  }
-
-  /**
-   * Auszeichnung im Just-Dance-Stil, aber CI-treu: der Backdrop ist ein Band
-   * aus alternierenden Dreiecken (▲▼▲▼), das sich beim Einblenden als Welle
-   * von links nach rechts aufbaut und beim Ausblenden genauso wieder abbaut.
-   */
-  private renderCheer(g: CanvasRenderingContext2D) {
-    if (!this.cheer) return;
-
-    const color = CHEER_COLORS[CHEERS.indexOf(this.cheer)] ?? CHEER_COLORS[0];
-    const elapsed = this.cheerDuration - this.cheerTimer;
-    const outElapsed = Math.max(0, CHEER_OUT - this.cheerTimer);
-
-    g.save();
-    g.translate(CHEER_X, CHEER_Y);
-    g.rotate(-0.05);
-
-    // Titel messen und auf die grüne Fläche einpassen
-    g.font = "800 110px 'TheSans', system-ui, sans-serif";
-    let w = g.measureText(this.cheer).width;
-    let fit = 1;
-    if (w > CHEER_MAX_W) {
-      fit = CHEER_MAX_W / w;
-      w = CHEER_MAX_W;
-    }
-
-    /* ---- Dreieck-Cluster (zentriert um y = 0) ---- */
-    const bandW = w + 120;
-    // Rückgrat-Dreiecke: Anzahl passend zur Breite, damit sie sich kaum überlappen
-    const n = Math.min(24, Math.max(6, Math.round(bandW / 75)));
-    const spacing = bandW / n;
-
-    const grow = 0.22; // Aufplopp-Dauer eines einzelnen Dreiecks
-    const shrink = 0.16;
-
-    g.fillStyle = color;
-    let backbone = 0;
-    for (const t of this.cheerTris) {
-      let u: number;
-      let r: number;
-      let dir: number;
-      if (t.accent) {
-        u = t.u;
-        r = 20 + t.rf * 26;
-        dir = t.rf < 0.5 ? 1 : -1;
-      } else {
-        if (backbone >= n) continue; // überzählige Rückgrat-Plätze bei kurzen Titeln
-        u = (backbone + 0.5) / n + t.xJit;
-        r = spacing * (0.82 + t.rf * 0.28); // verschieden groß, kaum Überlappung
-        dir = backbone % 2 === 0 ? 1 : -1; // Spitze abwechselnd oben/unten
-        backbone++;
-      }
-
-      // Auf- und Abbau-Welle von links nach rechts
-      let s = backOut(clamp01((elapsed - u * (CHEER_IN - grow)) / grow));
-      if (outElapsed > 0) s *= Math.pow(1 - clamp01((outElapsed - u * (CHEER_OUT - shrink)) / shrink), 1.5);
-      if (s <= 0.01) continue;
-
-      // Schweben + langsames Durchdrehen im Stand — jedes Dreieck mit eigener
-      // Geschwindigkeit, Richtung und Phase, damit nichts synchron läuft
-      const wSpeed = 0.5 + t.rf * 0.6;
-      const spin = (t.rf < 0.5 ? -1 : 1) * (0.12 + Math.abs(t.rf - 0.5) * 0.55);
-      const wob = t.rot + this.time * spin + 0.07 * Math.sin(this.time * wSpeed + t.ph);
-      const x = (u - 0.5) * bandW + 3 * Math.sin(this.time * (wSpeed * 0.8) + t.ph * 1.7);
-      const y = t.y + 4 * Math.sin(this.time * (0.7 + t.rf * 0.4) + t.ph);
-
-      const rs = r * s;
-      g.beginPath();
-      for (let k = 0; k < 3; k++) {
-        // gleichseitiges Dreieck, gedreht um wob, Spitze je nach dir oben/unten
-        const ang = wob + (dir * -Math.PI) / 2 + (k * 2 * Math.PI) / 3;
-        const px = x + Math.cos(ang) * rs;
-        const py = y + Math.sin(ang) * rs;
-        k === 0 ? g.moveTo(px, py) : g.lineTo(px, py);
-      }
-      g.closePath();
-      g.fill();
-    }
-
-    /* ---- Schrift: mittig im Cluster, eigener Pop nach der Welle ---- */
-    let ts = backOut(clamp01((elapsed - 0.25) / 0.3));
-    const tOut = clamp01(this.cheerTimer / 0.3);
-    ts *= tOut * tOut;
-    if (ts > 0.01) {
-      g.transform(1, 0, -0.18, 1, 0, 0); // kursiver Schub wie bei Just Dance
-      g.scale(ts * fit, ts * fit);
-      g.textAlign = 'center';
-      g.textBaseline = 'middle';
-      g.fillStyle = '#ffffff';
-      // Versalien sitzen mit baseline=middle optisch etwas tief — leicht anheben
-      g.fillText(this.cheer, 0, 8);
-    }
-    g.restore();
   }
 
   /* ================== Szene ================== */

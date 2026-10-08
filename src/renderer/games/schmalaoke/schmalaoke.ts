@@ -267,6 +267,15 @@ export class Schmalaoke implements Game {
   private noticeWidth = 0;
   private noticeKey = '';
 
+  /** Globale Kommentare: jeweils in der Fläche, die die Lyrics frei lassen —
+   *  BAYERN 3 unter dem pinken Band, BAYERN 1 über dem unteren Drittel,
+   *  Mitsingkonzert unten zwischen Vorschauzeilen und Durchsage-Balken */
+  cheerAnchor() {
+    if (this.mk) return { x: MK_W / 2, y: 1300, maxW: MK_MAX_W };
+    if (this.b1) return { x: VIEW_W / 2, y: 700, maxW: 900 };
+    return { x: VIEW_W / 2, y: 760, maxW: 900 };
+  }
+
   setStationMode(mode: StationMode) {
     this.b1 = mode === 'b1';
     this.mk = mode === 'mk';

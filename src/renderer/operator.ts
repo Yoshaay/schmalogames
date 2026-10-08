@@ -1,6 +1,7 @@
 import { GameEntry, OperatorPanel, SettingDef, StationMode, parseStationMode } from './core/game';
 import { games } from './games/registry';
 import { makeGapResizable } from './core/gap-resize';
+import { fireCheerHotkey, fireFxHotkey, setCheerOnWall, setShowContext, toggleShowDrawer } from './show-panel';
 
 const $ = (id: string) => document.getElementById(id)!;
 
@@ -347,6 +348,9 @@ function buildPanels(entry: GameEntry | null) {
   sideCol.hidden = !hasSide;
   mainEl.classList.toggle('no-side', !hasSide);
 
+  // Show-Schublade: im Sidebar-Layout steht die Vorschau rechts
+  setShowContext(!!entry, useSidebar);
+
   if (entry?.buildOperatorPanel) {
     gamePanelEl.hidden = false;
     $('game-panel-title').textContent = entry.title;
@@ -535,6 +539,8 @@ interface StateMsg {
   status: Record<string, string | number>;
   mask?: boolean;
   ndiFps?: number;
+  /** Globaler Kommentar, der gerade auf der Wall steht */
+  cheer?: string | null;
 }
 
 window.bus.onMessage((raw) => {
@@ -568,7 +574,21 @@ window.bus.onMessage((raw) => {
     fireHotkey((raw as { key: number }).key);
     return;
   }
+  if (anyMsg.type === 'fx-hotkey') {
+    if (!typingInOperator()) fireFxHotkey((raw as { code: string }).code);
+    return;
+  }
+  if (anyMsg.type === 'cheer-hotkey') {
+    if (typingInOperator()) return;
+    fireCheerHotkey((raw as { key: number }).key);
+    return;
+  }
   if (anyMsg.type === 'gamekey') {
+    // F aus dem Wall-Fenster: Show-Schublade (kein Spiel nutzt F)
+    if ((raw as { code: string }).code === 'KeyF') {
+      toggleShowDrawer();
+      return;
+    }
     gamePanel?.onKey?.((raw as { code: string }).code);
     return;
   }
@@ -594,6 +614,8 @@ window.bus.onMessage((raw) => {
   const msg = raw as StateMsg;
   if (msg.type !== 'state') return;
   lastWallStateAt = Date.now();
+
+  setCheerOnWall(msg.cheer ?? null);
 
   maskOn = msg.mask === true;
   const maskBtn = $('mask') as HTMLButtonElement;
@@ -665,6 +687,28 @@ function escapeHtml(s: string): string {
 // ---------- Hotkeys: 1–9 feuern die Aktionen des aktiven Spiels ----------
 // Die Tastendrücke fängt der Main-Prozess in BEIDEN Fenstern ab
 // (before-input-event) und schickt sie als 'hotkey'-Nachricht hierher.
+/** Tippt der Operator gerade in ein Eingabefeld? Dann sind Tasten keine
+ *  Hotkeys. Kommt der Druck aus dem Wall-Fenster, hat dieses Fenster keinen
+ *  Fokus — dann zählt er. */
+function typingInOperator(): boolean {
+  const active = document.activeElement;
+  return document.hasFocus() && active instanceof HTMLElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName);
+}
+
+// Show-Schublade: F auf/zu, Esc zu (im Operator-Fenster; F von der Wall
+// kommt als gamekey)
+window.addEventListener('keydown', (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+  if (e.code === 'Escape' && document.body.classList.contains('show-open')) {
+    toggleShowDrawer(false);
+    return;
+  }
+  if (e.code === 'KeyF' && !e.shiftKey && !typingInOperator()) {
+    e.preventDefault();
+    toggleShowDrawer();
+  }
+});
+
 function fireHotkey(n: number) {
   // Ziffern, die der Operator gerade in ein Eingabefeld tippt (BPM,
   // Durchsage-Text), sind keine Hotkeys. Kommt der Druck aus dem
